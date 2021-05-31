@@ -20,4 +20,4 @@ class Flight {
     this.last().timestamp.getTime() - this.first().timestamp.getTime();
 }
 
-export default { Flight };
+export { Flight };

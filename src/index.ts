@@ -1,2 +1,2 @@
-import core from './core';
-export default core;
+import { Flight } from './core';
+export { Flight };

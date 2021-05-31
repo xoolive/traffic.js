@@ -21,9 +21,8 @@ const config = {
   output: {
     filename: 'traffic.js',
     path: path.resolve(__dirname, 'dist'),
-    //library: { type: 'umd', name: 'traffic' },
+    library: { type: 'umd', name: 'traffic' },
   },
-  target: 'node',
 };
 
 export default config;

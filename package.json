@@ -4,6 +4,7 @@
   "description": "traffic toolbox ",
   "main": "index.js",
   "type": "module",
+  "module": "dist/traffic.js",
   "scripts": {
     "start": "ts-node-dev --respawn src/index.ts",
     "build": "webpack --config webpack.config.js",
