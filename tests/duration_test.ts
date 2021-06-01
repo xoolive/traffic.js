@@ -1,12 +1,10 @@
-import { Flight } from '../src/index';
-import * as fs from 'fs';
+import { Flight } from '../src/core';
+//import * as fs from 'fs';
 //import * as process from 'process';
 
 //console.log(process.cwd());
 const start = async () => {
-  const data = fs.readFileSync('toulouse.json', 'utf8');
-  const f = new Flight(data);
-  await f.init();
+  const f = await Flight.from_url('http://127.0.0.1:5500/toulouse.json.gz');
   console.log(f.length());
   console.log(f.duration());
 };
