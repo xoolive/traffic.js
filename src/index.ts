@@ -1,2 +1,4 @@
-import { Flight } from './core';
-export { Flight };
+import { Flight } from './flight';
+import { Traffic } from './traffic';
+
+export { Flight, Traffic };

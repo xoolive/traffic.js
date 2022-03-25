@@ -2,14 +2,12 @@
   "name": "traffic",
   "version": "1.0.0",
   "description": "traffic toolbox ",
-  "main": "index.js",
+  "exports": "./src/index.js",
   "type": "module",
   "module": "dist/traffic.js",
   "scripts": {
-    "start": "ts-node-dev --respawn src/index.ts",
-    "build": "webpack --config webpack.config.js",
-    "tidy_test": "ts-node-dev tests/tidy_test.ts",
-    "duration_test": "ts-node-dev tests/duration_test.ts"
+    "build": "NODE_OPTIONS=--openssl-legacy-provider webpack --config webpack.config.js",
+    "tests": "ts-node node_modules/tape/bin/tape 'tests/test_flight.ts'"
   },
   "repository": {
     "type": "git",
@@ -25,17 +23,25 @@
   },
   "homepage": "https://github.com/xoolive/traffic.js#readme",
   "dependencies": {
-    "@tidyjs/tidy": "^2.4.2",
-    "cross-fetch": "^3.1.4",
-    "pako": "^2.0.3"
+    "arquero": "^4.8.8",
+    "cross-fetch": "^3.1.5",
+    "d3": "^7.3.0",
+    "fflate": "^0.7.3"
   },
   "devDependencies": {
+    "@types/d3": "^7.1.0",
     "@types/node": "^15.6.1",
-    "@types/pako": "^1.0.1",
+    "@types/tape": "^4.13.2",
+    "jshint": "^2.13.4",
+    "tape": "^5.5.2",
     "ts-loader": "^9.2.2",
-    "ts-node-dev": "^1.1.6",
+    "ts-node": "^10.7.0",
+    "ts-node-dev": "^1.1.8",
     "typescript": "^4.3.2",
     "webpack": "^5.38.1",
     "webpack-cli": "^4.7.0"
+  },
+  "esm": {
+    "force": true
   }
 }

@@ -23,6 +23,9 @@ const config = {
     path: path.resolve(__dirname, 'dist'),
     library: { type: 'umd', name: 'traffic' },
   },
+  /*experiments: {
+    asyncWebAssembly: true,
+  },*/
 };
 
 export default config;
