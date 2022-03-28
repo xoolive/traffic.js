@@ -26,10 +26,11 @@ class Traffic implements Iterable<Flight> {
     return new Traffic(await fromURL(url));
   }
 
-  *iterate() {
+  *iterate(threshold = 600) {
     const map = this.data.groupby('icao24').objects({ grouped: true });
     for (const elt of map.values()) {
-      yield Flight.from(elt as Object[]);
+      for (const segment of Flight.from(elt as Object[]).split(threshold))
+        yield segment;
     }
   }
 

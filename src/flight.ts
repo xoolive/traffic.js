@@ -5,6 +5,7 @@ import { make_date, timelike } from './time';
 
 import Table from 'arquero/dist/types/table/table';
 import { Op } from 'arquero/dist/types/op/op';
+import { Struct } from 'arquero/dist/types/table/transformable';
 
 interface Entry {
   latitude: number;
@@ -78,6 +79,30 @@ class Flight {
     );
   };
 
+  *split(threshold = 600): Generator<Flight> {
+    const enriched = this.data.orderby('timestamp').derive({
+      time_diff: (d: Struct) => (d.timestamp - op.lag(d.timestamp)) / 1000 || 0,
+    });
+    const idxmax = enriched
+      .derive({ diff_max: op.max('time_diff') })
+      .filter((x: Struct) => x.diff_max === x.time_diff);
+
+    const max_diff = idxmax.get('time_diff');
+    const t0 = idxmax.get('timestamp');
+    if (max_diff && max_diff > threshold) {
+      const f1 = this.before(new Date(t0), true); // better be explicit
+      const f2 = this.after(new Date(t0), false); // better be explicit
+      for (const segment of f1.split(threshold)) {
+        yield segment;
+      }
+      for (const segment of f2.split(threshold)) {
+        yield segment;
+      }
+    } else {
+      yield this as Flight;
+    }
+  }
+
   min = (feature: string) => agg(this.data, op.min(feature));
   max = (feature: string) => agg(this.data, op.max(feature));
   mean = (feature: string) => agg(this.data, op.mean(feature));
@@ -97,18 +122,18 @@ class Flight {
     return this.max('icao24');
   }
 
-  before = (timestamp: timelike, { strict: boolean } = { strict: true }) =>
-    new Flight(
-      this.data.filter(
-        escape((elt: Entry) => elt.timestamp < make_date(timestamp))
-      )
-    );
-  after = (timestamp: timelike, { strict: boolean } = { strict: false }) =>
-    new Flight(
-      this.data.filter(
-        escape((elt: Entry) => elt.timestamp >= make_date(timestamp))
-      )
-    );
+  before = (timestamp: timelike, strict: boolean = true) => {
+    const compare = strict
+      ? escape((elt: Entry) => elt.timestamp < make_date(timestamp))
+      : escape((elt: Entry) => elt.timestamp <= make_date(timestamp));
+    return new Flight(this.data.filter(compare));
+  };
+  after = (timestamp: timelike, strict: boolean = false) => {
+    const compare = strict
+      ? escape((elt: Entry) => elt.timestamp > make_date(timestamp))
+      : escape((elt: Entry) => elt.timestamp >= make_date(timestamp));
+    return new Flight(this.data.filter(compare));
+  };
   between = (t1: timelike, t2: timelike) => this.after(t1).before(t2);
 }
 
