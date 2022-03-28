@@ -1,5 +1,4 @@
 import * as aq from 'arquero';
-import { fetch } from 'cross-fetch';
 import * as fflate from 'fflate';
 //import pq from 'parquet-wasm';
 

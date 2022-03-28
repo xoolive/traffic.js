@@ -1,7 +1,4 @@
-import { agg, escape, op } from 'arquero';
-
 import { from, fromArrayBuffer, fromArrow, fromJSON, fromURL } from './data';
-import { make_date, timelike } from './time';
 
 import Table from 'arquero/dist/types/table/table';
 import { Flight } from './flight';

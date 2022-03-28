@@ -1,47 +1,48 @@
 {
-  "name": "traffic",
-  "version": "1.0.0",
-  "description": "traffic toolbox ",
-  "exports": "./src/index.js",
+  "name": "tsubame",
+  "version": "0.1.1",
+  "description": "Process and visualise aircraft trajectories",
   "type": "module",
-  "module": "dist/traffic.js",
+  "typings": "dist/src",
+  "main": "dist/tsubame.node.js",
+  "module": "dist/tsubame.js",
   "scripts": {
-    "build": "NODE_OPTIONS=--openssl-legacy-provider webpack --config webpack.config.js",
-    "tests": "ts-node node_modules/tape/bin/tape 'tests/test_flight.ts'"
+    "prebuild": "rimraf build dist",
+    "build": "rollup -c; tsc",
+    "test": "mocha",
+    "prepublishOnly": "npm run build"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/xoolive/traffic.js.git"
+    "url": "https://github.com/xoolive/tsubame"
   },
   "keywords": [
     "aviation"
   ],
   "author": "Xavier Olive",
   "license": "MIT",
-  "bugs": {
-    "url": "https://github.com/xoolive/traffic.js/issues"
-  },
-  "homepage": "https://github.com/xoolive/traffic.js#readme",
   "dependencies": {
     "arquero": "^4.8.8",
-    "cross-fetch": "^3.1.5",
     "d3": "^7.3.0",
     "fflate": "^0.7.3"
   },
   "devDependencies": {
+    "@rollup/plugin-json": "^4.1.0",
+    "@rollup/plugin-node-resolve": "^13.1.3",
+    "@types/chai": "^4.3.0",
     "@types/d3": "^7.1.0",
+    "@types/mocha": "^9.1.0",
     "@types/node": "^15.6.1",
-    "@types/tape": "^4.13.2",
+    "chai": "^4.3.6",
     "jshint": "^2.13.4",
-    "tape": "^5.5.2",
-    "ts-loader": "^9.2.2",
+    "mocha": "^9.2.2",
+    "rimraf": "^3.0.2",
+    "rollup": "^2.70.1",
+    "rollup-plugin-bundle-size": "^1.0.3",
+    "rollup-plugin-serve": "^1.1.0",
+    "rollup-plugin-terser": "^7.0.2",
+    "rollup-plugin-typescript2": "^0.31.2",
     "ts-node": "^10.7.0",
-    "ts-node-dev": "^1.1.8",
-    "typescript": "^4.3.2",
-    "webpack": "^5.38.1",
-    "webpack-cli": "^4.7.0"
-  },
-  "esm": {
-    "force": true
+    "typescript": "^4.6.3"
   }
 }
