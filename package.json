@@ -1,20 +1,23 @@
 {
-  "name": "tsubame",
-  "version": "0.1.1",
+  "name": "traffic.js",
+  "version": "0.0.1",
   "description": "Process and visualise aircraft trajectories",
   "type": "module",
-  "typings": "dist/src",
-  "main": "dist/tsubame.node.js",
-  "module": "dist/tsubame.js",
+  "main": "dist/traffic.node.js",
+  "module": "dist/traffic.js",
+  "unpkg": "dist/traffic.min.js",
+  "jsdeliver": "dist/traffic.min.js",
+  "types": "dist/src/index.d.ts",
   "scripts": {
     "prebuild": "rimraf build dist",
     "build": "rollup -c; tsc",
+    "serve": "rollup -c --environment SERVE; tsc",
     "test": "mocha",
     "prepublishOnly": "npm run build"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/xoolive/tsubame"
+    "url": "https://github.com/xoolive/traffic.js"
   },
   "keywords": [
     "aviation"

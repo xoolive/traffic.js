@@ -19,7 +19,8 @@ const external = [
   ...Object.keys(pkg.dependencies || {}),
   ...Object.keys(pkg.peerDependencies || {}),
 ];
-const plugins = [
+
+let plugins = [
   json(),
   bundleSize(),
   nodeResolve({ modulesOnly: true }),
@@ -27,14 +28,19 @@ const plugins = [
     typescript: require('typescript'),
     clean: true,
   }),
-  serve({
-    open: false,
-    host: 'localhost',
-    port: 4000,
-    contentBase: ['./dist'],
-    headers: { 'Access-Control-Allow-Origin': '*' },
-  }),
 ];
+
+if (process.env.SERVE) {
+  plugins = plugins.concat(
+    serve({
+      open: false,
+      host: 'localhost',
+      port: 4000,
+      contentBase: ['./dist'],
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
+  );
+}
 const globals = {
   arquero: 'aq',
   d3: 'd3',
@@ -56,7 +62,7 @@ export default [
       },
       { file: pkg.module, format: 'umd', name, globals },
       {
-        file: 'dist/tsubame.min.js',
+        file: pkg.unpkg,
         format: 'umd',
         sourcemap: true,
         plugins: [terser({ ecma: 2020 })],
