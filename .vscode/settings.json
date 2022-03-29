@@ -6,6 +6,7 @@
     "fflate",
     "groupby",
     "icao",
+    "stdev",
     "timelike"
   ]
 }

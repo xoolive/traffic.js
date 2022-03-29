@@ -53,4 +53,37 @@ const fromArrayBuffer = function (buf: ArrayBuffer): Table {
   }
 };
 
-export { from, fromArrayBuffer, fromArrow, fromJSON, fromURL };
+// Mixins, based on
+// https://www.bryntum.com/blog/the-mixin-pattern-in-typescript-all-you-need-to-know/
+
+// To get started, we need a type which we'll use to extend
+// other classes from. The main responsibility is to declare
+// that the type being passed in is a class.
+
+export type AnyFunction<A = any> = (...input: any[]) => A;
+export type AnyConstructor<A = object> = new (...input: any[]) => A;
+export type Mixin<T extends AnyFunction> = InstanceType<ReturnType<T>>;
+
+// This mixin adds all the methods to construct a new Flight, Traffic, etc.
+
+export function TableMixin<T extends AnyConstructor>(base: T) {
+  return class TableWrapper extends base {
+    static from(array: Array<Object>) {
+      return new TableWrapper(from(array));
+    }
+    static fromArrayBuffer(buf: ArrayBuffer) {
+      return new TableWrapper(fromArrayBuffer(buf));
+    }
+    static fromArrow(arrow: Array<Object>) {
+      return new TableWrapper(fromArrow(arrow));
+    }
+    static fromJSON(json_or_str: Array<Object> | Object | string) {
+      return new TableWrapper(fromJSON(json_or_str));
+    }
+    static async fromURL(url: string) {
+      return new TableWrapper(await fromURL(url));
+    }
+  };
+}
+
+export type TableMixin = Mixin<typeof TableMixin>;

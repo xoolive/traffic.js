@@ -1,6 +1,6 @@
 {
   "name": "traffic.js",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Process and visualise aircraft trajectories",
   "type": "module",
   "main": "dist/traffic.node.js",
@@ -10,8 +10,9 @@
   "types": "dist/src/index.d.ts",
   "scripts": {
     "prebuild": "rimraf build dist",
-    "build": "rollup -c; tsc",
-    "serve": "rollup -c --environment SERVE; tsc",
+    "build": "rollup -c",
+    "postbuild": "tsc",
+    "serve": "rollup -c --environment SERVE",
     "test": "mocha",
     "prepublishOnly": "npm run build"
   },

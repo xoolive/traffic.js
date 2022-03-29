@@ -1,6 +1,6 @@
 import { agg, escape, op } from 'arquero';
 
-import { from, fromArrayBuffer, fromArrow, fromJSON, fromURL } from './data';
+import { TableMixin } from './data';
 import { make_date, timelike } from './time';
 
 import Table from 'arquero/dist/types/table/table';
@@ -17,27 +17,11 @@ interface RollupObj {
   [key: string]: string | Function | Op;
 }
 
-class Flight {
+export class _Flight {
   data: Table;
 
   constructor(data: Table) {
     this.data = data;
-  }
-
-  static from(array: Array<Object>) {
-    return new Flight(from(array));
-  }
-  static fromArrayBuffer(buf: ArrayBuffer) {
-    return new Flight(fromArrayBuffer(buf));
-  }
-  static fromArrow(arrow: Array<Object>) {
-    return new Flight(fromArrow(arrow));
-  }
-  static fromJSON(json_or_str: Array<Object> | Object | string) {
-    return new Flight(fromJSON(json_or_str));
-  }
-  static async fromURL(url: string) {
-    return new Flight(await fromURL(url));
   }
 
   entries = () => Array.from(this.data) as Array<Entry>;
@@ -83,12 +67,12 @@ class Flight {
     const enriched = this.data.orderby('timestamp').derive({
       time_diff: (d: Struct) => (d.timestamp - op.lag(d.timestamp)) / 1000 || 0,
     });
-    const idxmax = enriched
+    const idx_max = enriched
       .derive({ diff_max: op.max('time_diff') })
       .filter((x: Struct) => x.diff_max === x.time_diff);
 
-    const max_diff = idxmax.get('time_diff');
-    const t0 = idxmax.get('timestamp');
+    const max_diff = idx_max.get('time_diff');
+    const t0 = idx_max.get('timestamp');
     if (max_diff && max_diff > threshold) {
       const f1 = this.before(new Date(t0), true); // better be explicit
       const f2 = this.after(new Date(t0), false); // better be explicit
@@ -99,7 +83,7 @@ class Flight {
         yield segment;
       }
     } else {
-      yield this as Flight;
+      yield this;
     }
   }
 
@@ -137,4 +121,5 @@ class Flight {
   between = (t1: timelike, t2: timelike) => this.after(t1).before(t2);
 }
 
-export { Flight };
+export const Flight = TableMixin(_Flight);
+export type Flight = InstanceType<typeof Flight>;
