@@ -1,11 +1,9 @@
 import { agg, escape, op } from 'arquero';
+import * as d3 from 'd3';
 
 import { TableMixin } from './data';
 import { make_date, timelike } from './time';
-
-import Table from 'arquero/dist/types/table/table';
-import { Op } from 'arquero/dist/types/op/op';
-import { Struct } from 'arquero/dist/types/table/transformable';
+import { ColumnTable, Op, Struct } from './types';
 
 interface Entry {
   latitude: number;
@@ -18,10 +16,16 @@ interface RollupObj {
 }
 
 export class _Flight {
-  data: Table;
+  data: ColumnTable;
 
-  constructor(data: Table) {
+  constructor(data: ColumnTable, time_fmt?: string) {
     this.data = data;
+    if (time_fmt) {
+      this.data = this.data.derive({
+        // @ts-ignore
+        timestamp: escape((d) => d3.timeParse(time_fmt)(d.timestamp)),
+      });
+    }
   }
 
   entries = () => Array.from(this.data) as Array<Entry>;
@@ -74,8 +78,8 @@ export class _Flight {
     const max_diff = idx_max.get('time_diff');
     const t0 = idx_max.get('timestamp');
     if (max_diff && max_diff > threshold) {
-      const f1 = this.before(new Date(t0), true); // better be explicit
-      const f2 = this.after(new Date(t0), false); // better be explicit
+      const f1 = this.before(t0, true); // better be explicit
+      const f2 = this.after(t0, false); // better be explicit
       for (const segment of f1.split(threshold)) {
         yield segment;
       }
@@ -98,6 +102,9 @@ export class _Flight {
   }
   get stop(): Date {
     return this.max('timestamp');
+  }
+  get duration(): number {
+    return this.stop.getTime() - this.start.getTime();
   }
   get callsign(): string {
     return this.max('callsign');

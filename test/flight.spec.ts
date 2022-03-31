@@ -1,19 +1,51 @@
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
 import { describe } from 'mocha';
-import { expect } from 'chai';
+import { expect, use } from 'chai';
+import chai_datetime from 'chai-datetime';
+
+use(chai_datetime);
 
 import { Flight } from '../src';
 
-import * as fs from 'fs';
-import * as path from 'path';
+const data = readFileSync(
+  join(__dirname, '..', 'data', 'belevingsvlucht.json.gz')
+);
+const flight = Flight.fromArrayBuffer(data.buffer) as Flight;
 
-describe('Load JSON file', () => {
-  let data = fs.readFileSync(path.join(__dirname, 'belevingsvlucht.json.gz'));
-  const flight = data.buffer.byteLength; //Flight.fromArrayBuffer(data.buffer);
+describe('Flight properties', () => {
+  it('callsign', () => expect(flight.callsign).to.be.equal('TRA051'));
+  it('icao24', () => expect(flight.icao24).to.be.equal('484506'));
 
-  it('bullshit', () => expect(flight).to.equal(291488));
+  const start = new Date('2018-05-30T15:21:38Z');
+  it('start', () => expect(flight.start).to.be.equalTime(start));
 
-  const flight2 = { callsign: 'TRA051' };
-  //const flight2 = Flight.fromArrayBuffer(data.buffer);
+  const stop = new Date('2018-05-30T20:22:56Z');
+  it('stop', () => expect(flight.stop).to.be.equalTime(stop));
 
-  it('callsign', () => expect(flight2.callsign).to.equal('TRA051'));
+  it('duration', () => expect(flight.duration).to.be.greaterThan(5 * 3600000));
+});
+
+describe('Flight functions', () => {
+  const t0 = new Date('2018-05-30T18:00:00Z');
+
+  const flight_before = flight.before(t0);
+  it('before', () => expect(flight_before.duration).to.be.below(3 * 3600000));
+
+  const flight_after = flight.after(t0);
+  it('after', () => expect(flight_after.duration).to.be.below(3 * 3600000));
+
+  const t1 = new Date('2018-05-30T19:00:00Z');
+  const flight_between = flight.between(t0, t1);
+  it('between strict', () =>
+    expect(flight_between.duration).to.be.equal(3599000));
+
+  const flight_chain = flight.before(t1, false).after(t0, false);
+  it('between included', () =>
+    expect(flight_chain.duration).to.be.equal(3600000));
 });

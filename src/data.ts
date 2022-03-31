@@ -2,35 +2,26 @@ import * as aq from 'arquero';
 import * as fflate from 'fflate';
 //import pq from 'parquet-wasm';
 
-/** Types */
-import Table from 'arquero/dist/types/table/table';
-
-const from = function (array: Array<Object>): Table {
+const from = function (array: Array<Object>) {
   return aq.from(array);
 };
 
-const fromURL = async function (url: string): Promise<Table> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(response.statusText);
-  }
-  return fromArrayBuffer(await response.arrayBuffer());
+const fromURL = async function (url: string) {
+  return await aq.load(url, { as: 'arrayBuffer', using: fromArrayBuffer });
 };
 
-const fromJSON = function (
-  json_or_str: Array<Object> | Object | string
-): Table {
+const fromJSON = function (json_or_str: Array<Object> | Object | string) {
   const json =
     typeof json_or_str === 'string' ? JSON.parse(json_or_str) : json_or_str;
   const aq_loader = Array.isArray(json) ? aq.from : aq.fromJSON;
   return aq_loader(json);
 };
 
-const fromArrow = function (arrow: Array<Object>): Table {
+const fromArrow = function (arrow: Array<Object>) {
   return aq.fromArrow(arrow);
 };
 
-const fromArrayBuffer = function (buf: ArrayBuffer): Table {
+const fromArrayBuffer = function (buf: ArrayBuffer) {
   const array = new Uint8Array(buf);
   let data;
   // -- GZip file header --
@@ -69,19 +60,19 @@ export type Mixin<T extends AnyFunction> = InstanceType<ReturnType<T>>;
 export function TableMixin<T extends AnyConstructor>(base: T) {
   return class TableWrapper extends base {
     static from(array: Array<Object>) {
-      return new TableWrapper(from(array));
+      return new TableWrapper(from(array), '%Q');
     }
     static fromArrayBuffer(buf: ArrayBuffer) {
-      return new TableWrapper(fromArrayBuffer(buf));
+      return new TableWrapper(fromArrayBuffer(buf), '%Q');
     }
     static fromArrow(arrow: Array<Object>) {
-      return new TableWrapper(fromArrow(arrow));
+      return new TableWrapper(fromArrow(arrow), '%Q');
     }
     static fromJSON(json_or_str: Array<Object> | Object | string) {
-      return new TableWrapper(fromJSON(json_or_str));
+      return new TableWrapper(fromJSON(json_or_str), '%Q');
     }
     static async fromURL(url: string) {
-      return new TableWrapper(await fromURL(url));
+      return new TableWrapper(await fromURL(url), '%Q');
     }
   };
 }

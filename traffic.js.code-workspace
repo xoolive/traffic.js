@@ -1,0 +1,31 @@
+{
+  "folders": [{ "path": "." }],
+  "settings": {
+    "cSpell.language": "en-GB",
+    "cSpell.words": [
+      "arquero",
+      "belevingsvlucht",
+      "callsign",
+      "datetime",
+      "fflate",
+      "groupby",
+      "icao",
+      "stdev",
+      "timelike"
+    ],
+    "[typescript]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode",
+      "files.insertFinalNewline": true
+    },
+    "[javascript]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode",
+      "files.insertFinalNewline": true
+    },
+    "[json]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[jsonc]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode"
+    }
+  }
+}

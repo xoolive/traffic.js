@@ -1,6 +1,6 @@
 {
   "name": "traffic.js",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Process and visualise aircraft trajectories",
   "type": "module",
   "main": "dist/traffic.node.js",
@@ -9,12 +9,13 @@
   "jsdeliver": "dist/traffic.min.js",
   "types": "dist/src/index.d.ts",
   "scripts": {
-    "prebuild": "rimraf build dist",
     "build": "rollup -c",
+    "lint": "prettier -c ./src ./test",
     "postbuild": "tsc",
+    "prebuild": "rimraf build dist",
+    "prepublishOnly": "npm run test & npm run lint & npm run build",
     "serve": "rollup -c --environment SERVE",
-    "test": "mocha",
-    "prepublishOnly": "npm run build"
+    "test": "mocha"
   },
   "repository": {
     "type": "git",
@@ -34,12 +35,15 @@
     "@rollup/plugin-json": "^4.1.0",
     "@rollup/plugin-node-resolve": "^13.1.3",
     "@types/chai": "^4.3.0",
+    "@types/chai-datetime": "^0.0.37",
     "@types/d3": "^7.1.0",
     "@types/mocha": "^9.1.0",
     "@types/node": "^15.6.1",
     "chai": "^4.3.6",
+    "chai-datetime": "^1.8.0",
     "jshint": "^2.13.4",
     "mocha": "^9.2.2",
+    "prettier": "^2.6.1",
     "rimraf": "^3.0.2",
     "rollup": "^2.70.1",
     "rollup-plugin-bundle-size": "^1.0.3",

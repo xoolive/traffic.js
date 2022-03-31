@@ -44,7 +44,6 @@ if (process.env.SERVE) {
 const globals = {
   arquero: 'aq',
   d3: 'd3',
-  'cross-fetch': 'fetch',
   fflate: 'fflate',
 };
 
