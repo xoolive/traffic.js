@@ -11,7 +11,8 @@
       "groupby",
       "icao",
       "stdev",
-      "timelike"
+      "timelike",
+      "xoolive"
     ],
     "[typescript]": {
       "editor.defaultFormatter": "esbenp.prettier-vscode",

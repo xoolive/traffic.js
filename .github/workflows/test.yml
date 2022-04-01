@@ -1,4 +1,4 @@
-name: Testing traffic.js
+name: testing
 
 on:
   push:
