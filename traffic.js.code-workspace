@@ -1,19 +1,6 @@
 {
   "folders": [{ "path": "." }],
   "settings": {
-    "cSpell.language": "en-GB",
-    "cSpell.words": [
-      "arquero",
-      "belevingsvlucht",
-      "callsign",
-      "datetime",
-      "fflate",
-      "groupby",
-      "icao",
-      "stdev",
-      "timelike",
-      "xoolive"
-    ],
     "[typescript]": {
       "editor.defaultFormatter": "esbenp.prettier-vscode",
       "files.insertFinalNewline": true
