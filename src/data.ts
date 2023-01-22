@@ -1,5 +1,6 @@
 import * as aq from 'arquero';
 import * as fflate from 'fflate';
+
 //import pq from 'parquet-wasm';
 
 const from = function (array: Array<Object>) {

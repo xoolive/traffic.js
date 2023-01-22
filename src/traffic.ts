@@ -1,9 +1,8 @@
-import { from } from 'arquero';
-import { escape } from 'arquero';
+import { agg, escape, from, op } from 'arquero';
 import * as d3 from 'd3';
 
-import { Flight } from './flight';
 import { TableMixin } from './data';
+import { Flight } from './flight';
 import { ColumnTable } from './types';
 
 export class _Traffic implements Iterable<Flight> {
@@ -30,6 +29,23 @@ export class _Traffic implements Iterable<Flight> {
   [Symbol.iterator]() {
     return this.iterate();
   }
+
+  min = (feature: string) => agg(this.data, op.min(feature));
+  max = (feature: string) => agg(this.data, op.max(feature));
+  mean = (feature: string) => agg(this.data, op.mean(feature));
+  median = (feature: string) => agg(this.data, op.median(feature));
+  stdev = (feature: string) => agg(this.data, op.stdev(feature));
+
+  get start(): Date {
+    return this.min('timestamp');
+  }
+  get stop(): Date {
+    return this.max('timestamp');
+  }
+
+  filter = (feature: string) => {
+    return new Traffic(this.data.filter(feature));
+  };
 }
 
 export const Traffic = TableMixin(_Traffic);

@@ -1,4 +1,4 @@
-import { agg, escape, op } from 'arquero';
+import { agg, escape, from, op } from 'arquero';
 import * as d3 from 'd3';
 
 import { TableMixin } from './data';
@@ -13,6 +13,10 @@ interface Entry {
 
 interface RollupObj {
   [key: string]: string | Function | Op;
+}
+
+interface WithTimestamp {
+  timestamp: Date;
 }
 
 export class _Flight {
@@ -126,6 +130,46 @@ export class _Flight {
     return new Flight(this.data.filter(compare));
   };
   between = (t1: timelike, t2: timelike) => this.after(t1).before(t2);
+
+  filter = (feature: string) => {
+    return new Flight(this.data.filter(feature));
+  };
+
+  resample = (rate = d3.timeSecond.every(1) as d3.TimeInterval) => {
+    const objects = this.data.objects();
+
+    // Construct the timescale
+    const timestamp_range = d3
+      .scaleTime() // 👉 scaleUtc??
+      .domain([this.min('timestamp'), this.max('timestamp')])
+      .ticks(rate);
+
+    const interpolate = (ts: Date, a: WithTimestamp, b: WithTimestamp) => {
+      const t = (+ts - +a.timestamp) / (+b.timestamp - +a.timestamp);
+      return d3.interpolate(
+        Object.assign({}, a, { timestamp: +a.timestamp }),
+        b
+      )(t);
+    };
+
+    const resampled_array = new Array();
+    let i = 0;
+    for (const t of timestamp_range) {
+      // Identify timestamps with values before and after the timestamp
+      while (objects[i].timestamp < t && objects[i + 1]?.timestamp <= t) ++i;
+      if (objects[i + 1])
+        resampled_array.push(
+          interpolate(
+            t,
+            objects[i] as WithTimestamp,
+            objects[i + 1] as WithTimestamp
+          )
+        );
+    }
+
+    // Return an object in the original class
+    return new Flight(from(resampled_array)); // aq.from
+  };
 }
 
 export const Flight = TableMixin(_Flight);
