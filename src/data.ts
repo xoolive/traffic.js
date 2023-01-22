@@ -75,6 +75,13 @@ export function TableMixin<T extends AnyConstructor>(base: T) {
     static async fromURL(url: string) {
       return new TableWrapper(await fromURL(url), '%Q');
     }
+    static async fromSample(identifier: string, folder: string = 'featured') {
+      return TableWrapper.fromURL(
+        'https://raw.githubusercontent.com/' +
+          'xoolive/traffic/master/traffic/data/samples/' +
+          `${folder}/${identifier}.json.gz`
+      );
+    }
   };
 }
 

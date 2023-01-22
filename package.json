@@ -27,7 +27,6 @@
   "author": "Xavier Olive",
   "license": "MIT",
   "dependencies": {
-    "@observablehq/inputs": "^0.10.4",
     "arquero": "^4.8.8",
     "d3": "^7.3.0",
     "fflate": "^0.7.3"
