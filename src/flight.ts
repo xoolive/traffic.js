@@ -1,3 +1,4 @@
+import * as turf from '@turf/turf';
 import { agg, escape, from, op } from 'arquero';
 import * as d3 from 'd3';
 
@@ -34,15 +35,12 @@ export class _Flight {
 
   entries = () => Array.from(this.data) as Array<Entry>;
 
-  feature = (spec: RollupObj = {}) =>
-    new Object({
-      type: 'Feature',
-      geometry: {
-        type: 'LineString',
-        coordinates: this.entries().map((elt) => [elt.longitude, elt.latitude]),
-      },
-      properties: this.rollup(spec),
-    });
+  feature = (spec: RollupObj = {}): turf.Feature =>
+    turf.lineString(
+      this.entries()
+        .filter((elt) => elt.longitude !== null)
+        .map((elt) => [elt.longitude, elt.latitude], this.rollup(spec))
+    );
 
   rollup = (spec: RollupObj = {}) => {
     return Object.fromEntries(
@@ -135,7 +133,10 @@ export class _Flight {
     return new Flight(this.data.filter(feature));
   };
 
-  resample = (rate = d3.timeSecond.every(1) as d3.TimeInterval) => {
+  resample = (rate = d3.timeSecond.every(1)) => {
+    if (rate === null) {
+      return this;
+    }
     const objects = this.data.objects();
 
     // Construct the timescale
@@ -169,6 +170,14 @@ export class _Flight {
 
     // Return an object in the original class
     return new Flight(from(resampled_array)); // aq.from
+  };
+
+  intersects = (feature: turf.Feature) => {
+    const flight_feature = this.feature();
+    return (
+      turf.booleanContains(feature, flight_feature) ||
+      turf.booleanCrosses(feature, flight_feature)
+    );
   };
 }
 

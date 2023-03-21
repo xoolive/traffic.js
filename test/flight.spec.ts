@@ -3,6 +3,8 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 import { op } from 'arquero';
+import * as d3 from 'd3';
+import * as turf from '@turf/turf';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -69,5 +71,25 @@ describe('Flight rollup', () => {
   });
   it('arquero op', () => {
     expect(stats.alt_max).to.be.greaterThan(10000);
+  });
+});
+
+describe('Flight resample', () => {
+  const r1s = flight.resample(d3.timeSecond.every(1));
+  it('resample 1s', () => {
+    expect(r1s.entries().length).to.be.equal(18078);
+  });
+  const r1m = flight.resample(d3.timeMinute.every(1));
+  it('resample 1m', () => {
+    expect(r1m.entries().length).to.be.equal(301);
+  });
+});
+
+describe('Flight intersects', () => {
+  const netherlands = turf.bboxPolygon([3.08, 50.75, 7.23, 53.75]);
+  const switzerland = turf.bboxPolygon([5.95, 45.81, 10.5, 47.81]);
+  it('intersections', () => {
+    expect(flight.intersects(netherlands)).to.be.true;
+    expect(flight.intersects(switzerland)).to.be.false;
   });
 });
