@@ -35,12 +35,14 @@ export class _Flight {
 
   entries = () => Array.from(this.data) as Array<Entry>;
 
-  feature = (spec: RollupObj = {}): turf.Feature =>
-    turf.lineString(
-      this.entries()
-        .filter((elt) => elt.longitude !== null)
-        .map((elt) => [elt.longitude, elt.latitude], this.rollup(spec))
-    );
+  feature = (spec: RollupObj = {}): turf.Feature | undefined => {
+    const coords = this.entries()
+      .filter((elt) => elt.longitude !== null)
+      .map((elt) => [elt.longitude, elt.latitude]);
+    return coords.length > 0
+      ? turf.lineString(coords, this.rollup(spec))
+      : undefined;
+  };
 
   rollup = (spec: RollupObj = {}) => {
     return Object.fromEntries(
@@ -175,8 +177,9 @@ export class _Flight {
   intersects = (feature: turf.Feature) => {
     const flight_feature = this.feature();
     return (
-      turf.booleanContains(feature, flight_feature) ||
-      turf.booleanCrosses(feature, flight_feature)
+      flight_feature !== undefined &&
+      (turf.booleanContains(feature, flight_feature) ||
+        turf.booleanCrosses(feature, flight_feature))
     );
   };
 }

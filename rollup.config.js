@@ -45,6 +45,7 @@ const globals = {
   arquero: 'aq',
   d3: 'd3',
   fflate: 'fflate',
+  '@turf/turf': 'turf',
 };
 
 export default [
