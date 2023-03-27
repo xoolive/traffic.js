@@ -1,6 +1,8 @@
 import * as turf from '@turf/turf';
 import { agg, escape, from, op } from 'arquero';
 import * as d3 from 'd3';
+import { GeoProjection } from 'd3';
+import simplify from 'simplify-js';
 
 import { TableMixin } from './data';
 import { make_date, timelike } from './time';
@@ -135,9 +137,61 @@ export class _Flight {
     return new Flight(this.data.filter(feature));
   };
 
-  resample = (rate = d3.timeSecond.every(1)) => {
+  compute_xy = (projection: GeoProjection | null = null) => {
+    if (projection === null) {
+      const lat_min = this.min('latitude');
+      const lat_max = this.max('latitude');
+      const lon_min = this.min('longitude');
+      const lon_max = this.max('longitude');
+      projection = d3
+        .geoConicConformal()
+        .rotate([-(lon_min + lon_max) / 2, -(lat_min + lat_max) / 2])
+        .center([(lon_min + lon_max) / 2, (lat_min + lat_max) / 2])
+        .parallels([lat_min, lat_max])
+        .scale(1)
+        .translate([0, 0]);
+      const dist_reference = d3.geoDistance(
+        [lon_min, lat_min],
+        [lon_max, lat_max]
+      );
+      const x1 = projection([lon_min, lat_min]) as [number, number];
+      const x2 = projection([lon_max, lat_max]) as [number, number];
+      const dist_euclide = Math.sqrt(
+        (x2[0] - x1[0]) ** 2 + (x2[1] - x1[1]) ** 2
+      );
+      const scale = (6371000 * dist_reference) / dist_euclide;
+      projection.scale(scale);
+    }
+    const data = this.entries()
+      .map(
+        (e) =>
+          new Object({
+            xy: (projection as d3.GeoProjection)([e.longitude, e.latitude]),
+            ...e,
+          })
+      )
+      .map(
+        // @ts-ignore
+        (e) => new Object({ x: e.xy[0], y: e.xy[1], ...e })
+      );
+    return new Flight(from(data));
+  };
+
+  simplify = (tolerance: number) => {
+    // @ts-ignore
+    const data_simplify = simplify(this.compute_xy().entries(), tolerance);
+    return new Flight(from(data_simplify));
+  };
+
+  resample = (
+    rate: number | d3.TimeInterval | null = d3.timeSecond.every(1)
+  ) => {
     if (rate === null) {
       return this;
+    }
+    if (typeof rate === 'number') {
+      // if rate is a number
+      rate = d3.timeMillisecond.every(this.duration / rate);
     }
     const objects = this.data.objects();
 
@@ -145,7 +199,7 @@ export class _Flight {
     const timestamp_range = d3
       .scaleTime() // 👉 scaleUtc??
       .domain([this.min('timestamp'), this.max('timestamp')])
-      .ticks(rate);
+      .ticks(rate as d3.TimeInterval);
 
     const interpolate = (ts: Date, a: WithTimestamp, b: WithTimestamp) => {
       const t = (+ts - +a.timestamp) / (+b.timestamp - +a.timestamp);

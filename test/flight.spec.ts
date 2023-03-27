@@ -83,6 +83,19 @@ describe('Flight resample', () => {
   it('resample 1m', () => {
     expect(r1m.entries().length).to.be.equal(301);
   });
+  it('resample n points', () => {
+    expect(flight.resample(2).entries().length).to.be.equal(2);
+    expect(flight.resample(20).entries().length).to.be.equal(20);
+    expect(flight.resample(200).entries().length).to.be.equal(200);
+    expect(flight.resample(2000).entries().length).to.be.equal(2000);
+  });
+});
+
+describe('Flight simplify', () => {
+  it('length', () => {
+    expect(flight.simplify(1e3).entries().length).to.be.equal(152);
+    expect(flight.simplify(1e2).entries().length).to.be.equal(871);
+  });
 });
 
 describe('Flight intersects', () => {

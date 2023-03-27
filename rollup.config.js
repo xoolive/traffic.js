@@ -46,6 +46,7 @@ const globals = {
   d3: 'd3',
   fflate: 'fflate',
   '@turf/turf': 'turf',
+  'simplify-js': 'simplify-js',
 };
 
 export default [
