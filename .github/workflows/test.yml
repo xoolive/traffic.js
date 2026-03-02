@@ -12,7 +12,7 @@ jobs:
 
     strategy:
       matrix:
-        node: [24, 25, 26]
+        node: [24]
 
     name: Node ${{ matrix.node }}
 
@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v2
 
       - name: Setup Node ${{ matrix.node }}
-        uses: actions/setup-node@v1
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node }}
 
