@@ -1,2 +1,2 @@
-export { Flight } from './flight';
-export { Traffic } from './traffic';
+export * from './core/index.js';
+export * from './data/index.js';

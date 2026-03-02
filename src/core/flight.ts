@@ -4,9 +4,9 @@ import * as d3 from 'd3';
 import { GeoProjection } from 'd3';
 import simplify from 'simplify-js';
 
-import { TableMixin } from './data';
-import { make_date, timelike } from './time';
-import { ColumnTable, Op, Struct } from './types';
+import { TableMixin } from './table.js';
+import { make_date, timelike } from './time.js';
+import { ColumnTable, Op, Struct } from './types.js';
 
 interface Entry {
   latitude: number;

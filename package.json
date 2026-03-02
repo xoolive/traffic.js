@@ -15,7 +15,7 @@
     "prebuild": "rimraf build dist",
     "prepublishOnly": "npm run test & npm run lint & npm run build",
     "serve": "rollup -c --environment SERVE",
-    "test": "mocha"
+    "test": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/run-tests.mjs"
   },
   "repository": {
     "type": "git",
@@ -31,7 +31,9 @@
     "arquero": "^4.8.8",
     "d3": "^7.3.0",
     "fflate": "^0.7.3",
-    "simplify-js": "^1.2.4"
+    "overpass-wizard": "^0.0.9",
+    "simplify-js": "^1.2.4",
+    "thrust-wasm": "^0.2.0"
   },
   "devDependencies": {
     "@rollup/plugin-json": "^4.1.0",

@@ -25,5 +25,5 @@ import { Flight, Traffic } from '@xoolive/traffic-js';
 npm run build  # build package
 npm publish # push new version to npm registry
 npm test  # running tests
-npm serve  # build package and serve on http://localhost:4000
+npm run serve  # build package and serve on http://localhost:4000
 ```

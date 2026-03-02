@@ -60,23 +60,32 @@ export type Mixin<T extends AnyFunction> = InstanceType<ReturnType<T>>;
 
 export function TableMixin<T extends AnyConstructor>(base: T) {
   return class TableWrapper extends base {
+    static _ctor() {
+      return this as unknown as new (data: unknown, time_fmt?: string) => unknown;
+    }
+
     static from(array: Array<Object>) {
-      return new TableWrapper(from(array), '%Q');
+      const Ctor = this._ctor();
+      return new Ctor(from(array), '%Q');
     }
     static fromArrayBuffer(buf: ArrayBuffer) {
-      return new TableWrapper(fromArrayBuffer(buf), '%Q');
+      const Ctor = this._ctor();
+      return new Ctor(fromArrayBuffer(buf), '%Q');
     }
     static fromArrow(arrow: Array<Object>) {
-      return new TableWrapper(fromArrow(arrow), '%Q');
+      const Ctor = this._ctor();
+      return new Ctor(fromArrow(arrow), '%Q');
     }
     static fromJSON(json_or_str: Array<Object> | Object | string) {
-      return new TableWrapper(fromJSON(json_or_str), '%Q');
+      const Ctor = this._ctor();
+      return new Ctor(fromJSON(json_or_str), '%Q');
     }
     static async fromURL(url: string) {
-      return new TableWrapper(await fromURL(url), '%Q');
+      const Ctor = this._ctor();
+      return new Ctor(await fromURL(url), '%Q');
     }
     static async fromSample(identifier: string, folder: string = 'featured') {
-      return TableWrapper.fromURL(
+      return this.fromURL(
         'https://raw.githubusercontent.com/' +
           'xoolive/traffic/master/src/traffic/data/samples/' +
           `${folder}/${identifier}.json.gz`

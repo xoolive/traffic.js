@@ -1,10 +1,5 @@
 {
-  "extension": ["ts"],
-  "spec": "test/**/*.spec.ts",
-  "require": "ts-node/esm",
-  "node-option": [
-    "experimental-specifier-resolution=node",
-    "loader=ts-node/esm",
-    "no-warnings"
-  ]
+  "extension": ["js"],
+  "spec": ".test-build/test/**/*.spec.js",
+  "node-option": ["experimental-specifier-resolution=node"]
 }

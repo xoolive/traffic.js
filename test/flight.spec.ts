@@ -12,11 +12,11 @@ const __dirname = dirname(__filename);
 import { describe } from 'mocha';
 import { expect, use } from 'chai';
 import chai_datetime from 'chai-datetime';
+import type { Op } from '../src/core/types.js';
 
 use(chai_datetime);
 
-import { Flight } from '../src';
-import { Op } from '../src/types';
+import { Flight } from '../src/index.js';
 
 const data = readFileSync(
   join(__dirname, '..', 'data', 'belevingsvlucht.json.gz')

@@ -11,7 +11,7 @@ import chai_datetime from 'chai-datetime';
 
 use(chai_datetime);
 
-import { Traffic } from '../src';
+import { Traffic } from '../src/index.js';
 
 const data = readFileSync(join(__dirname, '..', 'data', 'quickstart.json.gz'));
 const quickstart = Traffic.fromArrayBuffer(data.buffer) as Traffic;
