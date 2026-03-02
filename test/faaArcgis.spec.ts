@@ -22,9 +22,15 @@ function makeCore(collections: unknown[]): FaaArcgisCore {
   const airways = allFeatures.filter((row) => row['ROUTE_TYPE']);
   const airspaces = allFeatures.filter((row) => row['CLASS']);
 
-  const byCode = (rows: Record<string, unknown>[], key: string, code: string) => {
+  const byCode = (
+    rows: Record<string, unknown>[],
+    key: string,
+    code: string
+  ) => {
     const upper = code.toUpperCase();
-    const match = rows.find((row) => String(row[key] ?? '').toUpperCase() === upper);
+    const match = rows.find(
+      (row) => String(row[key] ?? '').toUpperCase() === upper
+    );
     return match ?? null;
   };
 
@@ -167,7 +173,10 @@ describe('FAA ArcGIS resolver adapter', () => {
     const resolver = await createFaaArcgisResolver({
       coreFactory: makeCore,
       fetchImpl,
-      datasetIds: [FAA_ARCGIS_DATASETS.designatedPoints, FAA_ARCGIS_DATASETS.atsRoutes],
+      datasetIds: [
+        FAA_ARCGIS_DATASETS.designatedPoints,
+        FAA_ARCGIS_DATASETS.atsRoutes,
+      ],
     });
 
     await resolver.fixes.data();
@@ -181,7 +190,11 @@ describe('FAA ArcGIS resolver adapter', () => {
     expect(j48.geometry.type).to.equal('LineString');
     expect(j48.properties.points[0].code).to.equal('LANNA');
     expect(j48.properties.points[0].raw_code).to.equal('LANNA');
-    expect(j48.properties.points[j48.properties.points.length - 1].code).to.equal('MOL');
-    expect(j48.properties.points[j48.properties.points.length - 1].raw_code).to.equal('MOL');
+    expect(
+      j48.properties.points[j48.properties.points.length - 1].code
+    ).to.equal('MOL');
+    expect(
+      j48.properties.points[j48.properties.points.length - 1].raw_code
+    ).to.equal('MOL');
   });
 });

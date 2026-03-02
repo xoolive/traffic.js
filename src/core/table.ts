@@ -61,7 +61,10 @@ export type Mixin<T extends AnyFunction> = InstanceType<ReturnType<T>>;
 export function TableMixin<T extends AnyConstructor>(base: T) {
   return class TableWrapper extends base {
     static _ctor() {
-      return this as unknown as new (data: unknown, time_fmt?: string) => unknown;
+      return this as unknown as new (
+        data: unknown,
+        time_fmt?: string
+      ) => unknown;
     }
 
     static from(array: Array<Object>) {

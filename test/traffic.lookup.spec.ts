@@ -19,7 +19,8 @@ describe('Traffic search and bracket lookup', function () {
   it('search returns matching callsigns', () => {
     const matches = quickstart.search('AFR');
     expect(matches.length).to.be.greaterThan(0);
-    expect(matches.some((flight) => flight.callsign.startsWith('AFR'))).to.be.true;
+    expect(matches.some((flight) => flight.callsign.startsWith('AFR'))).to.be
+      .true;
   });
 
   it('supports bracket lookup by callsign', () => {

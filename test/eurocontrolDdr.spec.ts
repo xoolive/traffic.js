@@ -9,19 +9,47 @@ import {
 function makeCore(archive: Uint8Array): EurocontrolDdrCore {
   const tag = String.fromCharCode(...archive.slice(0, 3));
   return {
-    airports: () => [{ code: 'EHAM', source: tag, latitude: 52.3086, longitude: 4.7639 }],
-    fixes: () => [{ code: 'NARAK', source: tag, latitude: 43.2, longitude: 1.5 }],
-    navaids: () => [{ code: 'TOU', source: tag, latitude: 43.6, longitude: 1.4 }],
-    airways: () => [{ name: 'UM605', source: tag, points: [{ latitude: 52.3, longitude: 4.7 }, { latitude: 51.5, longitude: 2.0 }] }],
+    airports: () => [
+      { code: 'EHAM', source: tag, latitude: 52.3086, longitude: 4.7639 },
+    ],
+    fixes: () => [
+      { code: 'NARAK', source: tag, latitude: 43.2, longitude: 1.5 },
+    ],
+    navaids: () => [
+      { code: 'TOU', source: tag, latitude: 43.6, longitude: 1.4 },
+    ],
+    airways: () => [
+      {
+        name: 'UM605',
+        source: tag,
+        points: [
+          { latitude: 52.3, longitude: 4.7 },
+          { latitude: 51.5, longitude: 2.0 },
+        ],
+      },
+    ],
     resolve_airport: (code: string) =>
-      code.toUpperCase() === 'EHAM' ? { code: 'EHAM', source: tag, latitude: 52.3086, longitude: 4.7639 } : null,
+      code.toUpperCase() === 'EHAM'
+        ? { code: 'EHAM', source: tag, latitude: 52.3086, longitude: 4.7639 }
+        : null,
     resolve_fix: (code: string) =>
-      code.toUpperCase() === 'NARAK' ? { code: 'NARAK', source: tag, latitude: 43.2, longitude: 1.5 } : null,
+      code.toUpperCase() === 'NARAK'
+        ? { code: 'NARAK', source: tag, latitude: 43.2, longitude: 1.5 }
+        : null,
     resolve_navaid: (code: string) =>
-      code.toUpperCase() === 'TOU' ? { code: 'TOU', source: tag, latitude: 43.6, longitude: 1.4 } : null,
+      code.toUpperCase() === 'TOU'
+        ? { code: 'TOU', source: tag, latitude: 43.6, longitude: 1.4 }
+        : null,
     resolve_airway: (name: string) =>
       name.toUpperCase() === 'UM605'
-        ? { name: 'UM605', source: tag, points: [{ latitude: 52.3, longitude: 4.7 }, { latitude: 51.5, longitude: 2.0 }] }
+        ? {
+            name: 'UM605',
+            source: tag,
+            points: [
+              { latitude: 52.3, longitude: 4.7 },
+              { latitude: 51.5, longitude: 2.0 },
+            ],
+          }
         : null,
   };
 }
@@ -37,7 +65,11 @@ describe('EUROCONTROL DDR resolver adapter', () => {
     const airports = await resolver.airports.data();
     expect(airports.length).to.equal(1);
     expect((airports[0] as { type: string }).type).to.equal('Feature');
-    expect((airports[0] as { properties: Record<string, unknown> }).properties['code']).to.equal('EHAM');
+    expect(
+      (airports[0] as { properties: Record<string, unknown> }).properties[
+        'code'
+      ]
+    ).to.equal('EHAM');
 
     const eham = (await resolver.airports['EHAM']) as {
       type: string;
@@ -83,7 +115,9 @@ describe('EUROCONTROL DDR resolver adapter', () => {
       },
     });
 
-    const fix = (await resolver.fixes['NARAK']) as { properties: Record<string, unknown> };
+    const fix = (await resolver.fixes['NARAK']) as {
+      properties: Record<string, unknown>;
+    };
     expect(fix.properties['code']).to.equal('NARAK');
     expect(progress.length).to.be.greaterThan(0);
     expect(progress[progress.length - 1]).to.equal(1);

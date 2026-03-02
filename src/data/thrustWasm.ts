@@ -27,7 +27,9 @@ export async function loadThrustWasmModule<TModule>(
     resolveRelative: boolean
   ): Promise<TModule | undefined> => {
     try {
-      const target = resolveRelative ? new URL(specifier, import.meta.url).toString() : specifier;
+      const target = resolveRelative
+        ? new URL(specifier, import.meta.url).toString()
+        : specifier;
       return (await import(target)) as TModule;
     } catch {
       return undefined;

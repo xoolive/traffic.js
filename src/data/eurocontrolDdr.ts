@@ -1,4 +1,7 @@
-type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+type FetchLike = (
+  input: RequestInfo | URL,
+  init?: RequestInit
+) => Promise<Response>;
 
 import { loadThrustWasmModule } from './thrustWasm.js';
 
@@ -67,7 +70,9 @@ function toPointGeometry(properties: Record<string, unknown>): GeoJsonGeometry {
   return null;
 }
 
-function toLineStringGeometry(properties: Record<string, unknown>): GeoJsonGeometry {
+function toLineStringGeometry(
+  properties: Record<string, unknown>
+): GeoJsonGeometry {
   const points = Array.isArray(properties['points'])
     ? (properties['points'] as Array<Record<string, unknown>>)
     : [];
@@ -89,7 +94,10 @@ function toLineStringGeometry(properties: Record<string, unknown>): GeoJsonGeome
 
 function toGeoJsonFeature(row: unknown, entity: EntityName): GeoJsonFeature {
   const properties = toProperties(row);
-  const geometry = entity === 'airways' ? toLineStringGeometry(properties) : toPointGeometry(properties);
+  const geometry =
+    entity === 'airways'
+      ? toLineStringGeometry(properties)
+      : toPointGeometry(properties);
   return {
     type: 'Feature',
     geometry,
@@ -129,8 +137,13 @@ function makeCollection<T>({
       const rows = await this.data();
       return rows.filter((row) =>
         Object.values(
-          row && typeof row === 'object' && 'properties' in (row as Record<string, unknown>)
-            ? ((row as Record<string, unknown>)['properties'] as Record<string, unknown>)
+          row &&
+            typeof row === 'object' &&
+            'properties' in (row as Record<string, unknown>)
+            ? ((row as Record<string, unknown>)['properties'] as Record<
+                string,
+                unknown
+              >)
             : (row as Record<string, unknown>)
         ).some((value) =>
           String(value ?? '')
@@ -148,7 +161,9 @@ function makeCollection<T>({
       }
       if (prop in obj) {
         const value = Reflect.get(obj, prop, receiver) as unknown;
-        return typeof value === 'function' ? (value as Function).bind(obj) : value;
+        return typeof value === 'function'
+          ? (value as Function).bind(obj)
+          : value;
       }
       return obj.get(prop);
     },
@@ -173,7 +188,8 @@ function makeCoreFactory(options: {
     return options.coreFactory;
   }
   if (options.thrustModule) {
-    return (archive) => options.thrustModule!.EurocontrolResolver.fromDdrArchive(archive);
+    return (archive) =>
+      options.thrustModule!.EurocontrolResolver.fromDdrArchive(archive);
   }
   return null;
 }
@@ -191,7 +207,9 @@ export async function fetchEurocontrolDdrArchive(options: {
   onProgress?: (progress: EurocontrolDdrArchiveProgress) => void;
 }): Promise<Uint8Array> {
   const fetchImpl = ensureFetch(options.fetchImpl);
-  const response = await fetchImpl(options.archiveUrl, { signal: options.signal });
+  const response = await fetchImpl(options.archiveUrl, {
+    signal: options.signal,
+  });
   if (!response.ok) {
     throw new Error(
       `Failed to fetch EUROCONTROL DDR archive: ${response.status} ${response.statusText}`
@@ -368,7 +386,9 @@ export async function createEurocontrolDdrResolver(
   });
 
   if (!coreFactory) {
-    throw new Error('thrustModule or coreFactory is required to build EUROCONTROL DDR resolver');
+    throw new Error(
+      'thrustModule or coreFactory is required to build EUROCONTROL DDR resolver'
+    );
   }
 
   let archive: Uint8Array | undefined;
@@ -384,7 +404,9 @@ export async function createEurocontrolDdrResolver(
   }
 
   if (!archive) {
-    throw new Error('archive or archiveUrl is required for EUROCONTROL DDR resolver');
+    throw new Error(
+      'archive or archiveUrl is required for EUROCONTROL DDR resolver'
+    );
   }
 
   return new EurocontrolDdrResolverJS(coreFactory(archive));

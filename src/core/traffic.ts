@@ -69,14 +69,17 @@ export class _Traffic implements Iterable<Flight> {
     if (query.length === 0) {
       return this._segments();
     }
-    return this._segments().filter((flight) => flightMatchesText(flight, query));
+    return this._segments().filter((flight) =>
+      flightMatchesText(flight, query)
+    );
   };
 
   get = (code: string): Flight | undefined => {
     const upper = String(code ?? '').toUpperCase();
     return this._segments().find(
       (flight) =>
-        flight.callsign.toUpperCase() === upper || flight.icao24.toUpperCase() === upper
+        flight.callsign.toUpperCase() === upper ||
+        flight.icao24.toUpperCase() === upper
     );
   };
 }

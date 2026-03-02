@@ -1,4 +1,7 @@
-type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+type FetchLike = (
+  input: RequestInfo | URL,
+  init?: RequestInit
+) => Promise<Response>;
 
 import { loadThrustWasmModule } from './thrustWasm.js';
 
@@ -25,7 +28,10 @@ function normalizeAirwayName(value: string): string {
 const ENTITY_DATASETS: Record<EntityName, string[]> = {
   airports: [FAA_ARCGIS_DATASETS.airports],
   fixes: [FAA_ARCGIS_DATASETS.designatedPoints],
-  navaids: [FAA_ARCGIS_DATASETS.designatedPoints, FAA_ARCGIS_DATASETS.navaidComponents],
+  navaids: [
+    FAA_ARCGIS_DATASETS.designatedPoints,
+    FAA_ARCGIS_DATASETS.navaidComponents,
+  ],
   airways: [FAA_ARCGIS_DATASETS.atsRoutes],
   airspaces: [
     FAA_ARCGIS_DATASETS.airspaceBoundary,
@@ -182,7 +188,9 @@ function toPointGeometry(properties: Record<string, unknown>): GeoJsonGeometry {
   return null;
 }
 
-function toLineStringGeometry(properties: Record<string, unknown>): GeoJsonGeometry {
+function toLineStringGeometry(
+  properties: Record<string, unknown>
+): GeoJsonGeometry {
   const points = Array.isArray(properties['points'])
     ? (properties['points'] as Array<Record<string, unknown>>)
     : [];
@@ -204,7 +212,10 @@ function toLineStringGeometry(properties: Record<string, unknown>): GeoJsonGeome
 
 function toGeoJsonFeature(row: unknown, entity: EntityName): GeoJsonFeature {
   const properties = toProperties(row);
-  const geometry = entity === 'airways' ? toLineStringGeometry(properties) : toPointGeometry(properties);
+  const geometry =
+    entity === 'airways'
+      ? toLineStringGeometry(properties)
+      : toPointGeometry(properties);
   return {
     type: 'Feature',
     geometry,
@@ -244,8 +255,13 @@ function makeCollection<T>({
       const rows = await this.data();
       return rows.filter((row) =>
         Object.values(
-          row && typeof row === 'object' && 'properties' in (row as Record<string, unknown>)
-            ? ((row as Record<string, unknown>)['properties'] as Record<string, unknown>)
+          row &&
+            typeof row === 'object' &&
+            'properties' in (row as Record<string, unknown>)
+            ? ((row as Record<string, unknown>)['properties'] as Record<
+                string,
+                unknown
+              >)
             : (row as Record<string, unknown>)
         ).some((value) =>
           String(value ?? '')
@@ -263,7 +279,9 @@ function makeCollection<T>({
       }
       if (prop in obj) {
         const value = Reflect.get(obj, prop, receiver) as unknown;
-        return typeof value === 'function' ? (value as Function).bind(obj) : value;
+        return typeof value === 'function'
+          ? (value as Function).bind(obj)
+          : value;
       }
       return obj.get(prop);
     },
@@ -289,7 +307,10 @@ function compactFeatureProperties(
   return out;
 }
 
-function compactCollectionForWasm(collection: unknown, datasetId: string): unknown {
+function compactCollectionForWasm(
+  collection: unknown,
+  datasetId: string
+): unknown {
   const source = collection as { type?: string; features?: unknown[] };
   const features = Array.isArray(source.features) ? source.features : [];
 
@@ -306,7 +327,7 @@ function compactCollectionForWasm(collection: unknown, datasetId: string): unkno
     return {
       type: 'Feature',
       properties: compactFeatureProperties(typed.properties, datasetId),
-      geometry: keepGeometry ? (typed.geometry ?? null) : null,
+      geometry: keepGeometry ? typed.geometry ?? null : null,
     };
   });
 
@@ -334,7 +355,8 @@ function makeCoreFactory(options: {
     return options.coreFactory;
   }
   if (options.thrustModule) {
-    return (collections) => new options.thrustModule!.FaaArcgisResolver(collections);
+    return (collections) =>
+      new options.thrustModule!.FaaArcgisResolver(collections);
   }
   return null;
 }
@@ -348,14 +370,21 @@ async function fetchCollection(
   options: {
     fetchImpl: FetchLike;
     signal?: AbortSignal;
-    onProgress?: (progress: Omit<FaaArcgisDatasetProgress, 'datasetId' | 'index' | 'totalDatasets'>) => void;
+    onProgress?: (
+      progress: Omit<
+        FaaArcgisDatasetProgress,
+        'datasetId' | 'index' | 'totalDatasets'
+      >
+    ) => void;
   }
 ): Promise<unknown> {
   const response = await options.fetchImpl(faaArcgisDatasetUrl(datasetId), {
     signal: options.signal,
   });
   if (!response.ok) {
-    throw new Error(`Failed to fetch FAA ArcGIS dataset ${datasetId}: ${response.status} ${response.statusText}`);
+    throw new Error(
+      `Failed to fetch FAA ArcGIS dataset ${datasetId}: ${response.status} ${response.statusText}`
+    );
   }
   if (!response.body) {
     return response.json();
@@ -391,13 +420,15 @@ async function fetchCollection(
   return JSON.parse(new TextDecoder().decode(bytes));
 }
 
-export async function fetchFaaArcgisCollections(options: {
-  datasetIds?: string[];
-  fetchImpl?: FetchLike;
-  signal?: AbortSignal;
-  onDatasetProgress?: (progress: FaaArcgisDatasetProgress) => void;
-  onCollection?: (loaded: FaaArcgisDatasetLoaded) => void;
-} = {}): Promise<unknown[]> {
+export async function fetchFaaArcgisCollections(
+  options: {
+    datasetIds?: string[];
+    fetchImpl?: FetchLike;
+    signal?: AbortSignal;
+    onDatasetProgress?: (progress: FaaArcgisDatasetProgress) => void;
+    onCollection?: (loaded: FaaArcgisDatasetLoaded) => void;
+  } = {}
+): Promise<unknown[]> {
   const fetchImpl = ensureFetch(options.fetchImpl);
   const datasetIds = options.datasetIds ?? Object.values(FAA_ARCGIS_DATASETS);
 
@@ -436,7 +467,9 @@ export class FaaArcgisResolverJS {
   private _externalCore: boolean;
   private _fetchImpl: FetchLike;
   private _signal: AbortSignal | undefined;
-  private _onDatasetProgress: ((progress: FaaArcgisDatasetProgress) => void) | undefined;
+  private _onDatasetProgress:
+    | ((progress: FaaArcgisDatasetProgress) => void)
+    | undefined;
   private _onCollection: ((loaded: FaaArcgisDatasetLoaded) => void) | undefined;
   private _collectionsByDatasetId: Map<string, unknown>;
   private _datasetFetchPromiseById: Map<string, Promise<void>>;
@@ -451,16 +484,18 @@ export class FaaArcgisResolverJS {
   airways: ResolverCollection<unknown>;
   airspaces: ResolverCollection<unknown>;
 
-  constructor(options: {
-    core?: FaaArcgisCore | null;
-    coreFactory?: CoreFactory | null;
-    externalCore?: boolean;
-    enabledDatasetIds?: string[];
-    fetchImpl?: FetchLike;
-    signal?: AbortSignal;
-    onDatasetProgress?: (progress: FaaArcgisDatasetProgress) => void;
-    onCollection?: (loaded: FaaArcgisDatasetLoaded) => void;
-  } = {}) {
+  constructor(
+    options: {
+      core?: FaaArcgisCore | null;
+      coreFactory?: CoreFactory | null;
+      externalCore?: boolean;
+      enabledDatasetIds?: string[];
+      fetchImpl?: FetchLike;
+      signal?: AbortSignal;
+      onDatasetProgress?: (progress: FaaArcgisDatasetProgress) => void;
+      onCollection?: (loaded: FaaArcgisDatasetLoaded) => void;
+    } = {}
+  ) {
     this._core = options.core ?? null;
     this._coreFactory = options.coreFactory ?? null;
     this._externalCore = options.externalCore ?? false;
@@ -544,7 +579,9 @@ export class FaaArcgisResolverJS {
     });
   }
 
-  static async fromArcgis(options: CreateFaaArcgisResolverOptions = {}): Promise<FaaArcgisResolverJS> {
+  static async fromArcgis(
+    options: CreateFaaArcgisResolverOptions = {}
+  ): Promise<FaaArcgisResolverJS> {
     return createFaaArcgisResolver(options);
   }
 
@@ -588,12 +625,16 @@ export class FaaArcgisResolverJS {
       return this._enabledDatasetIds;
     }
     const required = ENTITY_DATASETS[entity] ?? [];
-    return required.filter((datasetId) => this._enabledDatasetIds.includes(datasetId));
+    return required.filter((datasetId) =>
+      this._enabledDatasetIds.includes(datasetId)
+    );
   }
 
   private _requireCoreFactory(): CoreFactory {
     if (!this._coreFactory) {
-      throw new Error('A coreFactory or thrustModule is required when no prebuilt core is provided');
+      throw new Error(
+        'A coreFactory or thrustModule is required when no prebuilt core is provided'
+      );
     }
     return this._coreFactory;
   }
@@ -642,7 +683,9 @@ export class FaaArcgisResolverJS {
     }
 
     const wanted = this._datasetsFor(entity);
-    const allReady = wanted.every((datasetId) => this._collectionsByDatasetId.has(datasetId));
+    const allReady = wanted.every((datasetId) =>
+      this._collectionsByDatasetId.has(datasetId)
+    );
     if (this._core && allReady) {
       return;
     }
@@ -709,10 +752,12 @@ export class FaaArcgisResolverJS {
     }
 
     await this._ensureEntity('airways');
-    const collection = this._collectionsByDatasetId.get(FAA_ARCGIS_DATASETS.atsRoutes) as
-      | { features?: unknown[] }
-      | undefined;
-    const features = Array.isArray(collection?.features) ? collection!.features : [];
+    const collection = this._collectionsByDatasetId.get(
+      FAA_ARCGIS_DATASETS.atsRoutes
+    ) as { features?: unknown[] } | undefined;
+    const features = Array.isArray(collection?.features)
+      ? collection!.features
+      : [];
 
     const pointIdToIdent = new Map<string, string>();
     for (const loaded of this._collectionsByDatasetId.values()) {
@@ -721,7 +766,8 @@ export class FaaArcgisResolverJS {
         continue;
       }
       for (const f of loadedFeatures) {
-        const p = (f as { properties?: Record<string, unknown> }).properties ?? {};
+        const p =
+          (f as { properties?: Record<string, unknown> }).properties ?? {};
         const gid = String(p.GLOBAL_ID ?? '').toUpperCase();
         const ident = String(p.IDENT ?? '').toUpperCase();
         if (gid && ident) {
@@ -730,25 +776,28 @@ export class FaaArcgisResolverJS {
       }
     }
 
-      const points: Array<{
-        code: string;
-        raw_code: string;
-        kind: string;
-        latitude: number;
-        longitude: number;
-      }> = [];
+    const points: Array<{
+      code: string;
+      raw_code: string;
+      kind: string;
+      latitude: number;
+      longitude: number;
+    }> = [];
 
-      for (const feature of features) {
-        const typed = feature as {
-          properties?: Record<string, unknown>;
-          geometry?: { type?: string; coordinates?: unknown[] };
-        };
-        const ident = String(typed.properties?.IDENT ?? '').toUpperCase();
-        if (normalizeAirwayName(ident) !== key) {
-          continue;
-        }
+    for (const feature of features) {
+      const typed = feature as {
+        properties?: Record<string, unknown>;
+        geometry?: { type?: string; coordinates?: unknown[] };
+      };
+      const ident = String(typed.properties?.IDENT ?? '').toUpperCase();
+      if (normalizeAirwayName(ident) !== key) {
+        continue;
+      }
 
-      if (typed.geometry?.type !== 'LineString' || !Array.isArray(typed.geometry.coordinates)) {
+      if (
+        typed.geometry?.type !== 'LineString' ||
+        !Array.isArray(typed.geometry.coordinates)
+      ) {
         continue;
       }
 
@@ -788,7 +837,7 @@ export class FaaArcgisResolverJS {
           longitude: lon,
         });
       }
-      }
+    }
 
     if (points.length === 0) {
       this._airwayQuickCache.set(key, null);
@@ -805,7 +854,10 @@ export class FaaArcgisResolverJS {
     return feature;
   }
 
-  private async _coreListFrom(core: FaaArcgisCore, method: EntityName): Promise<unknown[]> {
+  private async _coreListFrom(
+    core: FaaArcgisCore,
+    method: EntityName
+  ): Promise<unknown[]> {
     const value = core[method]();
     const rows = await Promise.resolve(value);
     if (method === 'airspaces') {
@@ -819,9 +871,15 @@ export class FaaArcgisResolverJS {
     kind: 'airport' | 'fix' | 'navaid' | 'airway' | 'airspace',
     code: string
   ): Promise<unknown | null> {
-    const resolverMethod = core[
-      `resolve_${kind}` as 'resolve_airport' | 'resolve_fix' | 'resolve_navaid' | 'resolve_airway' | 'resolve_airspace'
-    ];
+    const resolverMethod =
+      core[
+        `resolve_${kind}` as
+          | 'resolve_airport'
+          | 'resolve_fix'
+          | 'resolve_navaid'
+          | 'resolve_airway'
+          | 'resolve_airspace'
+      ];
     const value = resolverMethod.call(core, code);
     const row = await Promise.resolve(value);
     if (row == null) {
@@ -830,7 +888,14 @@ export class FaaArcgisResolverJS {
     if (kind === 'airspace') {
       return row;
     }
-    const entity: EntityName = kind === 'airport' ? 'airports' : kind === 'fix' ? 'fixes' : kind === 'navaid' ? 'navaids' : 'airways';
+    const entity: EntityName =
+      kind === 'airport'
+        ? 'airports'
+        : kind === 'fix'
+        ? 'fixes'
+        : kind === 'navaid'
+        ? 'navaids'
+        : 'airways';
     return toGeoJsonFeature(row, entity);
   }
 }
@@ -897,7 +962,9 @@ export async function createFaaArcgisResolver(
 
   if (options.collections) {
     if (!coreFactory) {
-      throw new Error('coreFactory or thrustModule is required when passing collections');
+      throw new Error(
+        'coreFactory or thrustModule is required when passing collections'
+      );
     }
     return new FaaArcgisResolverJS({
       core: coreFactory(options.collections),
@@ -912,7 +979,9 @@ export async function createFaaArcgisResolver(
   }
 
   if (!coreFactory) {
-    throw new Error('thrustModule or coreFactory is required to build FAA ArcGIS resolver');
+    throw new Error(
+      'thrustModule or coreFactory is required to build FAA ArcGIS resolver'
+    );
   }
 
   const resolver = new FaaArcgisResolverJS({
