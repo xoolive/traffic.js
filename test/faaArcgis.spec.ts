@@ -145,6 +145,7 @@ describe('FAA ArcGIS resolver adapter', () => {
           {
             properties: {
               IDENT: 'J48',
+              ROUTE_TYPE: 'AR',
               STARTPT_ID: 'START-GID',
               ENDPT_ID: 'END-GID',
             },
@@ -183,18 +184,15 @@ describe('FAA ArcGIS resolver adapter', () => {
     const j48 = (await resolver.airways['J48']) as {
       type: string;
       geometry: { type: string; coordinates: Array<[number, number]> };
-      properties: { points: Array<{ code: string; raw_code: string }> };
+      properties: { points: string[]; route_class?: string };
     };
 
     expect(j48.type).to.equal('Feature');
     expect(j48.geometry.type).to.equal('LineString');
-    expect(j48.properties.points[0].code).to.equal('LANNA');
-    expect(j48.properties.points[0].raw_code).to.equal('LANNA');
-    expect(
-      j48.properties.points[j48.properties.points.length - 1].code
-    ).to.equal('MOL');
-    expect(
-      j48.properties.points[j48.properties.points.length - 1].raw_code
-    ).to.equal('MOL');
+    expect(j48.properties.points[0]).to.equal('LANNA');
+    expect(j48.properties.points[j48.properties.points.length - 1]).to.equal(
+      'MOL'
+    );
+    expect(j48.properties.route_class).to.equal('AR');
   });
 });

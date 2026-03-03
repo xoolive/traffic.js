@@ -22,9 +22,10 @@ function makeCore(archive: Uint8Array): EurocontrolDdrCore {
       {
         name: 'UM605',
         source: tag,
+        route_class: 'AR',
         points: [
-          { latitude: 52.3, longitude: 4.7 },
-          { latitude: 51.5, longitude: 2.0 },
+          { code: 'DTY', raw_code: 'DTY', latitude: 52.3, longitude: 4.7 },
+          { code: 'BIBAX', raw_code: 'BIBAX', latitude: 51.5, longitude: 2.0 },
         ],
       },
     ],
@@ -45,9 +46,10 @@ function makeCore(archive: Uint8Array): EurocontrolDdrCore {
         ? {
             name: 'UM605',
             source: tag,
+            route_class: 'AR',
             points: [
-              { latitude: 52.3, longitude: 4.7 },
-              { latitude: 51.5, longitude: 2.0 },
+              { code: 'DTY', raw_code: 'DTY', latitude: 52.3, longitude: 4.7 },
+              { code: 'BIBAX', raw_code: 'BIBAX', latitude: 51.5, longitude: 2.0 },
             ],
           }
         : null,
@@ -86,6 +88,11 @@ describe('EUROCONTROL DDR resolver adapter', () => {
 
     const matches = await resolver.airways.search('um6');
     expect(matches.length).to.equal(1);
+    const um605 = (await resolver.airways['UM605']) as {
+      properties: { points: string[]; route_class?: string };
+    };
+    expect(um605.properties.points).to.deep.equal(['DTY', 'BIBAX']);
+    expect(um605.properties.route_class).to.equal('AR');
   });
 
   it('supports archiveUrl fetch with progress callback', async () => {

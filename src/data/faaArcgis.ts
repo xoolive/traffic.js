@@ -210,11 +210,40 @@ function toLineStringGeometry(
   return null;
 }
 
+function compactAirwayProperties(
+  properties: Record<string, unknown>
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...properties };
+  const points = Array.isArray(properties['points'])
+    ? (properties['points'] as Array<Record<string, unknown>>)
+    : [];
+
+  const pointCodes = points
+    .map((point) => {
+      const raw = String(point?.raw_code ?? '').toUpperCase();
+      const code = String(point?.code ?? '').toUpperCase();
+      return raw.length > 0 ? raw : code;
+    })
+    .filter((value) => value.length > 0);
+
+  out['points'] = pointCodes;
+  const routeClass = String(out['route_class'] ?? out['ROUTE_TYPE'] ?? '').trim();
+  if (routeClass.length > 0) {
+    out['route_class'] = routeClass.toUpperCase();
+  }
+
+  return out;
+}
+
 function toGeoJsonFeature(row: unknown, entity: EntityName): GeoJsonFeature {
-  const properties = toProperties(row);
+  const baseProperties = toProperties(row);
+  const properties =
+    entity === 'airways'
+      ? compactAirwayProperties(baseProperties)
+      : baseProperties;
   const geometry =
     entity === 'airways'
-      ? toLineStringGeometry(properties)
+      ? toLineStringGeometry(baseProperties)
       : toPointGeometry(properties);
   return {
     type: 'Feature',
@@ -783,6 +812,7 @@ export class FaaArcgisResolverJS {
       latitude: number;
       longitude: number;
     }> = [];
+    let routeClass: string | undefined;
 
     for (const feature of features) {
       const typed = feature as {
@@ -792,6 +822,15 @@ export class FaaArcgisResolverJS {
       const ident = String(typed.properties?.IDENT ?? '').toUpperCase();
       if (normalizeAirwayName(ident) !== key) {
         continue;
+      }
+
+      const featureRouteClass = String(
+        typed.properties?.ROUTE_TYPE ?? typed.properties?.route_class ?? ''
+      )
+        .trim()
+        .toUpperCase();
+      if (!routeClass && featureRouteClass.length > 0) {
+        routeClass = featureRouteClass;
       }
 
       if (
@@ -847,6 +886,7 @@ export class FaaArcgisResolverJS {
     const record = {
       name: String(code).toUpperCase(),
       source: 'faa_arcgis',
+      route_class: routeClass,
       points,
     };
     const feature = toGeoJsonFeature(record, 'airways');

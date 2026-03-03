@@ -92,11 +92,36 @@ function toLineStringGeometry(
   return null;
 }
 
+function compactAirwayProperties(
+  properties: Record<string, unknown>
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...properties };
+  const points = Array.isArray(properties['points'])
+    ? (properties['points'] as Array<Record<string, unknown>>)
+    : [];
+
+  const pointCodes = points
+    .map((point) => {
+      const raw = String(point?.raw_code ?? '').toUpperCase();
+      const code = String(point?.code ?? '').toUpperCase();
+      return raw.length > 0 ? raw : code;
+    })
+    .filter((value) => value.length > 0);
+
+  out['points'] = pointCodes;
+
+  return out;
+}
+
 function toGeoJsonFeature(row: unknown, entity: EntityName): GeoJsonFeature {
-  const properties = toProperties(row);
+  const baseProperties = toProperties(row);
+  const properties =
+    entity === 'airways'
+      ? compactAirwayProperties(baseProperties)
+      : baseProperties;
   const geometry =
     entity === 'airways'
-      ? toLineStringGeometry(properties)
+      ? toLineStringGeometry(baseProperties)
       : toPointGeometry(properties);
   return {
     type: 'Feature',
