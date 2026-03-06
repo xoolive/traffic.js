@@ -1,3 +1,6 @@
+import * as turf from '@turf/turf';
+import type { Feature, Polygon, MultiPolygon, Position } from 'geojson';
+
 type FetchLike = (
   input: RequestInfo | URL,
   init?: RequestInit
@@ -7,13 +10,15 @@ import { loadThrustWasmModule } from './thrustWasm.js';
 
 export interface EurocontrolDdrCore {
   airports(): unknown[] | Promise<unknown[]>;
-  fixes(): unknown[] | Promise<unknown[]>;
   navaids(): unknown[] | Promise<unknown[]>;
   airways(): unknown[] | Promise<unknown[]>;
+  airspaces?(): unknown[] | Promise<unknown[]>;
   resolve_airport(code: string): unknown | null | Promise<unknown | null>;
-  resolve_fix(code: string): unknown | null | Promise<unknown | null>;
   resolve_navaid(code: string): unknown | null | Promise<unknown | null>;
   resolve_airway(name: string): unknown | null | Promise<unknown | null>;
+  resolve_airspace?(
+    designator: string
+  ): unknown | null | Promise<unknown | null>;
 }
 
 interface ThrustWasmModule {
@@ -25,7 +30,9 @@ interface ThrustWasmModule {
 
 type CoreFactory = (archive: Uint8Array) => EurocontrolDdrCore;
 
-type EntityName = 'airports' | 'fixes' | 'navaids' | 'airways';
+type EntityName = 'airports' | 'navaids' | 'airways' | 'airspaces';
+
+const DDR_AIRWAY_SPLIT_GAP_NM = 1000;
 
 export type EurocontrolResolverCollection<T> = {
   data(): Promise<T[]>;
@@ -46,6 +53,11 @@ type CollectionTarget<T> = {
 type GeoJsonGeometry =
   | { type: 'Point'; coordinates: [number, number] }
   | { type: 'LineString'; coordinates: Array<[number, number]> }
+  | { type: 'Polygon'; coordinates: Array<Array<[number, number]>> }
+  | {
+      type: 'MultiPolygon';
+      coordinates: Array<Array<Array<[number, number]>>>;
+    }
   | null;
 
 type GeoJsonFeature = {
@@ -92,6 +104,121 @@ function toLineStringGeometry(
   return null;
 }
 
+function toPolygonRing(raw: unknown): Array<[number, number]> {
+  const points = Array.isArray(raw) ? raw : [];
+  const ring = points
+    .map((pair) => {
+      if (!Array.isArray(pair) || pair.length < 2) {
+        return null;
+      }
+      const longitude = Number(pair[0]);
+      const latitude = Number(pair[1]);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        return null;
+      }
+      return [longitude, latitude] as [number, number];
+    })
+    .filter((value): value is [number, number] => Array.isArray(value));
+
+  if (ring.length < 3) {
+    return [];
+  }
+  const first = ring[0];
+  const last = ring[ring.length - 1];
+  if (first[0] !== last[0] || first[1] !== last[1]) {
+    ring.push([first[0], first[1]]);
+  }
+  return ring;
+}
+
+function toPolygonGeometry(
+  properties: Record<string, unknown>
+): GeoJsonGeometry {
+  const layers = Array.isArray(properties['layers'])
+    ? (properties['layers'] as Array<Record<string, unknown>>)
+    : [];
+  if (layers.length > 0) {
+    const features = layers
+      .map((layer) => layerGeometryToFeature(layer?.geometry))
+      .filter(
+        (value): value is Feature<Polygon | MultiPolygon> =>
+          value !== null
+      );
+    const merged = unionPolygons(features);
+    if (!merged) {
+      const fallback = combineAsMultiPolygon(features);
+      if (fallback) {
+        return fallback;
+      }
+    }
+    if (merged) {
+      if (merged.geometry.type === 'Polygon') {
+        return {
+          type: 'Polygon',
+          coordinates: merged.geometry.coordinates as Array<
+            Array<[number, number]>
+          >,
+        };
+      }
+      return {
+        type: 'MultiPolygon',
+        coordinates: merged.geometry.coordinates as Array<
+          Array<Array<[number, number]>>
+        >,
+      };
+    }
+  }
+
+  const features = layers
+    .map((layer) => toPolygonRing(layer?.coordinates))
+    .filter((ring) => ring.length >= 4)
+    .map(
+      (ring) =>
+        turf.polygon([ring]) as Feature<Polygon | MultiPolygon>
+    );
+
+  if (features.length > 1) {
+    const merged = unionPolygons(features);
+    if (!merged) {
+      const fallback = combineAsMultiPolygon(features);
+      if (fallback) {
+        return fallback;
+      }
+      return null;
+    }
+
+    if (merged.geometry.type === 'Polygon') {
+      return {
+        type: 'Polygon',
+        coordinates: merged.geometry.coordinates as Array<
+          Array<[number, number]>
+        >,
+      };
+    }
+    return {
+      type: 'MultiPolygon',
+      coordinates: merged.geometry.coordinates as Array<
+        Array<Array<[number, number]>>
+      >,
+    };
+  }
+
+  if (features.length === 1) {
+    return {
+      type: 'Polygon',
+      coordinates: features[0].geometry.coordinates as Array<
+        Array<[number, number]>
+      >,
+    };
+  }
+
+  const fallbackRing = toPolygonRing(properties['coordinates']);
+  if (fallbackRing.length >= 4) {
+    return { type: 'Polygon', coordinates: [fallbackRing] };
+  }
+  return null;
+}
+
 function compactAirwayProperties(
   properties: Record<string, unknown>
 ): Record<string, unknown> {
@@ -113,16 +240,291 @@ function compactAirwayProperties(
   return out;
 }
 
-function toGeoJsonFeature(row: unknown, entity: EntityName): GeoJsonFeature {
+function unionPolygons(
+  features: Array<Feature<Polygon | MultiPolygon>>
+): Feature<Polygon | MultiPolygon> | null {
+  if (features.length === 0) {
+    return null;
+  }
+  let merged = features[0];
+  const failed: Array<Feature<Polygon | MultiPolygon>> = [];
+  for (let idx = 1; idx < features.length; idx += 1) {
+    try {
+      const maybeUnion = turf.union(
+        turf.featureCollection([merged, features[idx]])
+      ) as Feature<Polygon | MultiPolygon> | null;
+      if (maybeUnion) {
+        merged = maybeUnion;
+      } else {
+        failed.push(features[idx]);
+      }
+    } catch {
+      failed.push(features[idx]);
+    }
+  }
+  if (failed.length === 0) {
+    return merged;
+  }
+  // Some pairs failed to union topologically — fold them in as extra rings.
+  const fallbackGeom = combineAsMultiPolygon([merged, ...failed]);
+  if (!fallbackGeom) {
+    return merged;
+  }
+  return {
+    type: 'Feature',
+    properties: {},
+    geometry: fallbackGeom,
+  } as Feature<MultiPolygon>;
+}
+
+function geometriesEqual(
+  left: Feature<Polygon | MultiPolygon>,
+  right: Feature<Polygon | MultiPolygon>
+): boolean {
+  try {
+    return turf.booleanEqual(left, right);
+  } catch {
+    return false;
+  }
+}
+
+function layerGeometryToFeature(
+  geometry: unknown
+): Feature<Polygon | MultiPolygon> | null {
+  if (!geometry || typeof geometry !== 'object') {
+    return null;
+  }
+  const typed = geometry as { type?: unknown; coordinates?: unknown };
+  if (typed.type === 'Polygon' && Array.isArray(typed.coordinates)) {
+    return turf.polygon(
+      typed.coordinates as Position[][]
+    ) as Feature<Polygon | MultiPolygon>;
+  }
+  if (typed.type === 'MultiPolygon' && Array.isArray(typed.coordinates)) {
+    return turf.multiPolygon(
+      typed.coordinates as Position[][][]
+    ) as Feature<Polygon | MultiPolygon>;
+  }
+  return null;
+}
+
+function combineAsMultiPolygon(
+  features: Array<Feature<Polygon | MultiPolygon>>
+): GeoJsonGeometry {
+  if (features.length === 0) {
+    return null;
+  }
+  const coordinates: Array<Array<Array<[number, number]>>> = [];
+  for (const feature of features) {
+    if (feature.geometry.type === 'Polygon') {
+      coordinates.push(
+        feature.geometry.coordinates as Array<Array<[number, number]>>
+      );
+    } else {
+      coordinates.push(
+        ...(feature.geometry.coordinates as Array<
+          Array<Array<[number, number]>>
+        >)
+      );
+    }
+  }
+  return { type: 'MultiPolygon', coordinates };
+}
+
+function compactAirspaceProperties(
+  properties: Record<string, unknown>,
+  includeGeometry = true
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...properties };
+  const layers = Array.isArray(properties['layers'])
+    ? (properties['layers'] as Array<Record<string, unknown>>)
+    : [];
+  if (layers.length === 0) {
+    return out;
+  }
+
+  // When geometry is not needed, skip all turf work and return raw layers as-is.
+  if (!includeGeometry) {
+    out['raw_layers'] = layers;
+    out['layers'] = layers.map(({ lower, upper }) => ({ lower, upper }));
+    return out;
+  }
+
+  const parsedLayers = layers
+    .map((layer) => {
+      const ring = toPolygonRing(layer?.coordinates);
+      if (ring.length < 4) {
+        return null;
+      }
+      const lowerRaw = Number(layer?.lower);
+      const upperRaw = Number(layer?.upper);
+      const lower = Number.isNaN(lowerRaw) ? null : lowerRaw;
+      const upper = Number.isNaN(upperRaw) ? null : upperRaw;
+      return {
+        lower,
+        upper,
+        feature: turf.polygon([ring]) as Feature<Polygon | MultiPolygon>,
+      };
+    })
+    .filter(
+      (
+        value
+      ): value is {
+        lower: number | null;
+        upper: number | null;
+        feature: Feature<Polygon | MultiPolygon>;
+      } => value !== null
+    );
+
+  const altitudes = Array.from(
+    new Set(
+      parsedLayers.flatMap((layer) =>
+        [layer.lower, layer.upper].filter(
+          (value): value is number => typeof value === 'number'
+        )
+      )
+    )
+  ).sort((a, b) => a - b);
+
+  const mergedLayers: Array<Record<string, unknown>> = [];
+  if (altitudes.length >= 2) {
+    for (let idx = 0; idx < altitudes.length - 1; idx += 1) {
+      const lower = altitudes[idx];
+      const upper = altitudes[idx + 1];
+      const covering = parsedLayers
+        .filter(
+          (layer) =>
+            layer.lower !== null &&
+            layer.upper !== null &&
+            layer.lower <= lower &&
+            layer.upper >= upper
+        )
+        .map((layer) => layer.feature);
+      const merged = unionPolygons(covering);
+      if (!merged) {
+        const fallback = combineAsMultiPolygon(covering);
+        if (!fallback) {
+          continue;
+        }
+        mergedLayers.push({ lower, upper, geometry: fallback });
+        continue;
+      }
+
+      const previous = mergedLayers[mergedLayers.length - 1] as
+        | { lower?: number; upper?: number; geometry?: unknown }
+        | undefined;
+      const previousGeometry = previous
+        ? layerGeometryToFeature(previous.geometry)
+        : null;
+      if (previousGeometry && geometriesEqual(previousGeometry, merged)) {
+        if (previous) {
+          previous.upper = upper;
+        }
+      } else {
+        mergedLayers.push({ lower, upper, geometry: merged.geometry });
+      }
+    }
+  } else {
+    const merged = unionPolygons(parsedLayers.map((layer) => layer.feature));
+    if (merged) {
+      mergedLayers.push({
+        lower: null,
+        upper: null,
+        geometry: merged.geometry,
+      });
+    }
+  }
+
+  out['raw_layers'] = layers;
+  out['layers'] = mergedLayers.length > 0 ? mergedLayers : layers;
+  return out;
+}
+
+function greatCircleDistanceNm(
+  latitude1: number,
+  longitude1: number,
+  latitude2: number,
+  longitude2: number
+): number {
+  const radiusNm = 3440.065;
+  const phi1 = (latitude1 * Math.PI) / 180;
+  const phi2 = (latitude2 * Math.PI) / 180;
+  const deltaPhi = ((latitude2 - latitude1) * Math.PI) / 180;
+  const deltaLambda = ((longitude2 - longitude1) * Math.PI) / 180;
+  const a =
+    Math.sin(deltaPhi / 2) ** 2 +
+    Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) ** 2;
+  return 2 * radiusNm * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+function splitAirwayRecord(row: unknown): Array<Record<string, unknown>> {
+  const properties = toProperties(row);
+  const points = Array.isArray(properties['points'])
+    ? (properties['points'] as Array<Record<string, unknown>>)
+    : [];
+  if (points.length <= 1) {
+    return [properties];
+  }
+
+  const variants: Array<Array<Record<string, unknown>>> = [[points[0]]];
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1];
+    const current = points[index];
+
+    const previousLat = Number(previous?.latitude);
+    const previousLon = Number(previous?.longitude);
+    const currentLat = Number(current?.latitude);
+    const currentLon = Number(current?.longitude);
+    const hasCoords =
+      Number.isFinite(previousLat) &&
+      Number.isFinite(previousLon) &&
+      Number.isFinite(currentLat) &&
+      Number.isFinite(currentLon);
+    const splitHere =
+      hasCoords &&
+      greatCircleDistanceNm(previousLat, previousLon, currentLat, currentLon) >=
+        DDR_AIRWAY_SPLIT_GAP_NM;
+
+    if (splitHere) {
+      variants.push([current]);
+    } else {
+      variants[variants.length - 1].push(current);
+    }
+  }
+
+  const filtered = variants.filter((variant) => variant.length >= 2);
+  if (filtered.length <= 1) {
+    return [properties];
+  }
+
+  return filtered.map((variant, index) => ({
+    ...properties,
+    points: variant,
+    airway_variant: index + 1,
+    airway_variant_count: filtered.length,
+  }));
+}
+
+function toGeoJsonFeature(
+  row: unknown,
+  entity: EntityName,
+  options?: { includeGeometry?: boolean }
+): GeoJsonFeature {
+  const includeGeometry = options?.includeGeometry ?? true;
   const baseProperties = toProperties(row);
   const properties =
     entity === 'airways'
       ? compactAirwayProperties(baseProperties)
+      : entity === 'airspaces'
+      ? compactAirspaceProperties(baseProperties, includeGeometry)
       : baseProperties;
-  const geometry =
-    entity === 'airways'
-      ? toLineStringGeometry(baseProperties)
-      : toPointGeometry(properties);
+  const geometry = !includeGeometry
+    ? null
+    : entity === 'airways'
+    ? toLineStringGeometry(baseProperties)
+    : entity === 'airspaces'
+    ? toPolygonGeometry(properties)
+    : toPointGeometry(properties);
   return {
     type: 'Feature',
     geometry,
@@ -276,14 +678,18 @@ export async function fetchEurocontrolDdrArchive(options: {
 
 export class EurocontrolDdrResolverJS {
   private _core: EurocontrolDdrCore;
+  private _warnedAmbiguousAirways: Set<string>;
+  private _warnedMissingAirspaceApi: boolean;
 
   airports: EurocontrolResolverCollection<unknown>;
-  fixes: EurocontrolResolverCollection<unknown>;
   navaids: EurocontrolResolverCollection<unknown>;
   airways: EurocontrolResolverCollection<unknown>;
+  airspaces: EurocontrolResolverCollection<unknown>;
 
   constructor(core: EurocontrolDdrCore) {
     this._core = core;
+    this._warnedAmbiguousAirways = new Set();
+    this._warnedMissingAirspaceApi = false;
 
     this.airports = makeCollection({
       name: 'airports',
@@ -294,18 +700,6 @@ export class EurocontrolDdrResolverJS {
       resolveFn: async (code: string) =>
         Promise.resolve(this._core.resolve_airport(code)).then((row) =>
           row == null ? null : toGeoJsonFeature(row, 'airports')
-        ),
-    });
-
-    this.fixes = makeCollection({
-      name: 'fixes',
-      listFn: async () =>
-        Promise.resolve(this._core.fixes()).then((rows) =>
-          rows.map((row) => toGeoJsonFeature(row, 'fixes'))
-        ),
-      resolveFn: async (code: string) =>
-        Promise.resolve(this._core.resolve_fix(code)).then((row) =>
-          row == null ? null : toGeoJsonFeature(row, 'fixes')
         ),
     });
 
@@ -325,11 +719,47 @@ export class EurocontrolDdrResolverJS {
       name: 'airways',
       listFn: async () =>
         Promise.resolve(this._core.airways()).then((rows) =>
-          rows.map((row) => toGeoJsonFeature(row, 'airways'))
+          rows
+            .flatMap((row) => splitAirwayRecord(row))
+            .map((row) => toGeoJsonFeature(row, 'airways'))
         ),
       resolveFn: async (code: string) =>
         Promise.resolve(this._core.resolve_airway(code)).then((row) =>
-          row == null ? null : toGeoJsonFeature(row, 'airways')
+          row == null
+            ? null
+            : (() => {
+                const variants = splitAirwayRecord(row);
+                if (variants.length > 1) {
+                  const airwayName = String(code ?? '').toUpperCase();
+                  if (!this._warnedAmbiguousAirways.has(airwayName)) {
+                    this._warnedAmbiguousAirways.add(airwayName);
+                    console.warn(
+                      `[traffic.js] airway '${airwayName}' has ${variants.length} variants; bracket lookup returns the first one. Use airways.data() and filter by properties.name to access all variants.`
+                    );
+                  }
+                }
+                return toGeoJsonFeature(variants[0] ?? row, 'airways');
+              })()
+        ),
+    });
+
+    this.airspaces = makeCollection({
+      name: 'airspaces',
+      listFn: async () =>
+        (typeof this._core.airspaces === 'function'
+          ? Promise.resolve(this._core.airspaces())
+          : Promise.resolve([])
+        ).then((rows) =>
+          rows.map((row) =>
+            toGeoJsonFeature(row, 'airspaces', { includeGeometry: false })
+          )
+        ),
+      resolveFn: async (code: string) =>
+        (typeof this._core.resolve_airspace === 'function'
+          ? Promise.resolve(this._core.resolve_airspace(code))
+          : Promise.resolve(null)
+        ).then((row) =>
+          row == null ? null : toGeoJsonFeature(row, 'airspaces')
         ),
     });
   }
@@ -339,6 +769,7 @@ export class EurocontrolDdrResolverJS {
     navaid?: string;
     fix?: string;
     airway?: string;
+    airspace?: string;
   }): Promise<unknown> {
     if (query.airport) {
       return this.airports.get(query.airport);
@@ -347,12 +778,26 @@ export class EurocontrolDdrResolverJS {
       return this.navaids.get(query.navaid);
     }
     if (query.fix) {
-      return this.fixes.get(query.fix);
+      return this.navaids.get(query.fix);
     }
     if (query.airway) {
       return this.airways.get(query.airway);
     }
-    throw new Error('resolve: pass one of airport/navaid/fix/airway');
+    if (query.airspace) {
+      if (
+        typeof this._core.airspaces !== 'function' ||
+        typeof this._core.resolve_airspace !== 'function'
+      ) {
+        if (!this._warnedMissingAirspaceApi) {
+          this._warnedMissingAirspaceApi = true;
+          console.warn(
+            '[traffic.js] EUROCONTROL airspace API is unavailable in the loaded thrust-wasm build; upgrade thrust-wasm to use resolve({ airspace }).'
+          );
+        }
+      }
+      return this.airspaces.get(query.airspace);
+    }
+    throw new Error('resolve: pass one of airport/navaid/fix/airway/airspace');
   }
 }
 

@@ -12,10 +12,8 @@ function makeCore(archive: Uint8Array): EurocontrolDdrCore {
     airports: () => [
       { code: 'EHAM', source: tag, latitude: 52.3086, longitude: 4.7639 },
     ],
-    fixes: () => [
-      { code: 'NARAK', source: tag, latitude: 43.2, longitude: 1.5 },
-    ],
     navaids: () => [
+      { code: 'NARAK', source: tag, latitude: 43.2, longitude: 1.5 },
       { code: 'TOU', source: tag, latitude: 43.6, longitude: 1.4 },
     ],
     airways: () => [
@@ -29,17 +27,30 @@ function makeCore(archive: Uint8Array): EurocontrolDdrCore {
         ],
       },
     ],
+    airspaces: () => [
+      {
+        designator: 'LFBBCTA',
+        name: 'BORDEAUX CTA',
+        type_: 'SECTOR',
+        lower: 245,
+        upper: 660,
+        coordinates: [
+          [1.0, 44.0],
+          [2.0, 44.5],
+          [2.5, 45.0],
+        ],
+        source: tag,
+      },
+    ],
     resolve_airport: (code: string) =>
       code.toUpperCase() === 'EHAM'
         ? { code: 'EHAM', source: tag, latitude: 52.3086, longitude: 4.7639 }
         : null,
-    resolve_fix: (code: string) =>
-      code.toUpperCase() === 'NARAK'
-        ? { code: 'NARAK', source: tag, latitude: 43.2, longitude: 1.5 }
-        : null,
     resolve_navaid: (code: string) =>
       code.toUpperCase() === 'TOU'
         ? { code: 'TOU', source: tag, latitude: 43.6, longitude: 1.4 }
+        : code.toUpperCase() === 'NARAK'
+        ? { code: 'NARAK', source: tag, latitude: 43.2, longitude: 1.5 }
         : null,
     resolve_airway: (name: string) =>
       name.toUpperCase() === 'UM605'
@@ -49,8 +60,29 @@ function makeCore(archive: Uint8Array): EurocontrolDdrCore {
             route_class: 'AR',
             points: [
               { code: 'DTY', raw_code: 'DTY', latitude: 52.3, longitude: 4.7 },
-              { code: 'BIBAX', raw_code: 'BIBAX', latitude: 51.5, longitude: 2.0 },
+              {
+                code: 'BIBAX',
+                raw_code: 'BIBAX',
+                latitude: 51.5,
+                longitude: 2.0,
+              },
             ],
+          }
+        : null,
+    resolve_airspace: (designator: string) =>
+      designator.toUpperCase() === 'LFBBCTA'
+        ? {
+            designator: 'LFBBCTA',
+            name: 'BORDEAUX CTA',
+            type_: 'SECTOR',
+            lower: 245,
+            upper: 660,
+            coordinates: [
+              [1.0, 44.0],
+              [2.0, 44.5],
+              [2.5, 45.0],
+            ],
+            source: tag,
           }
         : null,
   };
@@ -93,6 +125,28 @@ describe('EUROCONTROL DDR resolver adapter', () => {
     };
     expect(um605.properties.points).to.deep.equal(['DTY', 'BIBAX']);
     expect(um605.properties.route_class).to.equal('AR');
+
+    const airspaceRows = (await resolver.airspaces.data()) as Array<{
+      geometry: unknown;
+    }>;
+    expect(airspaceRows[0].geometry).to.equal(null);
+
+    const airspace = (await resolver.airspaces['LFBBCTA']) as {
+      geometry: { type: string; coordinates: unknown } | null;
+      properties: Record<string, unknown>;
+    };
+    expect(airspace.geometry).to.deep.equal({
+      type: 'Polygon',
+      coordinates: [
+        [
+          [1, 44],
+          [2, 44.5],
+          [2.5, 45],
+          [1, 44],
+        ],
+      ],
+    });
+    expect(airspace.properties['designator']).to.equal('LFBBCTA');
   });
 
   it('supports archiveUrl fetch with progress callback', async () => {
@@ -122,11 +176,382 @@ describe('EUROCONTROL DDR resolver adapter', () => {
       },
     });
 
-    const fix = (await resolver.fixes['NARAK']) as {
+    const fix = (await resolver.navaids['NARAK']) as {
       properties: Record<string, unknown>;
     };
     expect(fix.properties['code']).to.equal('NARAK');
     expect(progress.length).to.be.greaterThan(0);
     expect(progress[progress.length - 1]).to.equal(1);
+  });
+
+  it('splits very large airway gaps on adapter output', async () => {
+    const core: EurocontrolDdrCore = {
+      airports: () => [],
+      navaids: () => [],
+      airways: () => [
+        {
+          name: 'A10',
+          source: 'DDR',
+          route_class: 'AR',
+          points: [
+            { code: 'YJQ', raw_code: 'YJQ', latitude: 10, longitude: 10 },
+            { code: 'MITEK', raw_code: 'MITEK', latitude: 10, longitude: 11 },
+            { code: '*PR13', raw_code: '*PR13', latitude: 10, longitude: 12 },
+            { code: 'SIT', raw_code: 'SIT', latitude: 55, longitude: 120 },
+            { code: 'PAXIS', raw_code: 'PAXIS', latitude: 55, longitude: 121 },
+          ],
+        },
+      ],
+      airspaces: () => [],
+      resolve_airport: () => null,
+      resolve_navaid: () => null,
+      resolve_airway: () => ({
+        name: 'A10',
+        source: 'DDR',
+        route_class: 'AR',
+        points: [
+          { code: 'YJQ', raw_code: 'YJQ', latitude: 10, longitude: 10 },
+          { code: 'MITEK', raw_code: 'MITEK', latitude: 10, longitude: 11 },
+          { code: '*PR13', raw_code: '*PR13', latitude: 10, longitude: 12 },
+          { code: 'SIT', raw_code: 'SIT', latitude: 55, longitude: 120 },
+          { code: 'PAXIS', raw_code: 'PAXIS', latitude: 55, longitude: 121 },
+        ],
+      }),
+      resolve_airspace: () => null,
+    };
+
+    const resolver = await createEurocontrolDdrResolver({ core });
+
+    const rows = (await resolver.airways.data()) as Array<{
+      properties: { points: string[]; airway_variant_count?: number };
+    }>;
+    expect(rows.length).to.equal(2);
+    expect(rows[0].properties.points).to.deep.equal(['YJQ', 'MITEK', '*PR13']);
+    expect(rows[1].properties.points).to.deep.equal(['SIT', 'PAXIS']);
+    expect(rows[0].properties.airway_variant_count).to.equal(2);
+
+    const a10 = (await resolver.airways['A10']) as {
+      properties: { points: string[] };
+    };
+    expect(a10.properties.points).to.deep.equal(['YJQ', 'MITEK', '*PR13']);
+  });
+
+  it('warns once when airway lookup is ambiguous', async () => {
+    const core: EurocontrolDdrCore = {
+      airports: () => [],
+      navaids: () => [],
+      airways: () => [],
+      airspaces: () => [],
+      resolve_airport: () => null,
+      resolve_navaid: () => null,
+      resolve_airway: () => ({
+        name: 'A10',
+        source: 'DDR',
+        route_class: 'AR',
+        points: [
+          { code: 'YJQ', raw_code: 'YJQ', latitude: 10, longitude: 10 },
+          { code: 'MITEK', raw_code: 'MITEK', latitude: 10, longitude: 11 },
+          { code: '*PR13', raw_code: '*PR13', latitude: 10, longitude: 12 },
+          { code: 'SIT', raw_code: 'SIT', latitude: 55, longitude: 120 },
+          { code: 'PAXIS', raw_code: 'PAXIS', latitude: 55, longitude: 121 },
+        ],
+      }),
+      resolve_airspace: () => null,
+    };
+
+    const resolver = await createEurocontrolDdrResolver({ core });
+    const originalWarn = console.warn;
+    const warnings: string[] = [];
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.map((arg) => String(arg)).join(' '));
+    };
+
+    try {
+      await resolver.airways['A10'];
+      await resolver.airways['A10'];
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    expect(warnings.length).to.equal(1);
+    expect(warnings[0]).to.include("airway 'A10' has 2 variants");
+  });
+
+  it('gracefully handles older cores without airspace methods', async () => {
+    const core = {
+      airports: () => [],
+      navaids: () => [],
+      airways: () => [],
+      resolve_airport: () => null,
+      resolve_navaid: () => null,
+      resolve_airway: () => null,
+    } as EurocontrolDdrCore;
+
+    const resolver = await createEurocontrolDdrResolver({ core });
+    const originalWarn = console.warn;
+    const warnings: string[] = [];
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.map((arg) => String(arg)).join(' '));
+    };
+
+    try {
+      const result = await resolver.resolve({ airspace: 'LFBBCTA' });
+      expect(result).to.equal(undefined);
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    expect(warnings.length).to.equal(1);
+    expect(warnings[0]).to.include('EUROCONTROL airspace API is unavailable');
+  });
+
+  it('unions layered airspace geometry for display', async () => {
+    const layered = {
+      designator: 'LFBBCTA',
+      name: 'BORDEAUX U/ACC',
+      type_: 'AUA',
+      source: 'DDR',
+      layers: [
+        {
+          lower: 195,
+          upper: 295,
+          coordinates: [
+            [1, 44],
+            [2, 44],
+            [2, 45],
+            [1, 45],
+          ],
+        },
+        {
+          lower: 295,
+          upper: 365,
+          coordinates: [
+            [1.5, 44.5],
+            [2.5, 44.5],
+            [2.5, 45.5],
+            [1.5, 45.5],
+          ],
+        },
+      ],
+    };
+
+    const core: EurocontrolDdrCore = {
+      airports: () => [],
+      navaids: () => [],
+      airways: () => [],
+      airspaces: () => [layered],
+      resolve_airport: () => null,
+      resolve_navaid: () => null,
+      resolve_airway: () => null,
+      resolve_airspace: () => layered,
+    };
+
+    const resolver = await createEurocontrolDdrResolver({ core });
+    const lfbb = (await resolver.airspaces['LFBBCTA']) as {
+      geometry: { type: string; coordinates: unknown } | null;
+      properties: {
+        layers?: Array<{
+          geometry?: { type?: string; coordinates?: unknown };
+        }>;
+      };
+    };
+    expect(lfbb.geometry?.type).to.equal('Polygon');
+    expect(Array.isArray(lfbb.properties.layers)).to.equal(true);
+    expect(lfbb.properties.layers?.length).to.equal(2);
+    expect(lfbb.properties.layers?.[0].geometry?.type).to.equal('Polygon');
+    expect(
+      Array.isArray(
+        (
+          lfbb.properties.layers?.[0].geometry?.coordinates as
+            | unknown[]
+            | undefined
+        )?.[0]
+      )
+    ).to.equal(true);
+  });
+
+  it('applies altitude-slice merge like traffic unary_union_with_alt', async () => {
+    const layered = {
+      designator: 'TESTCTA',
+      name: 'TEST CTA',
+      type_: 'CTA',
+      source: 'DDR',
+      layers: [
+        {
+          lower: 100,
+          upper: 200,
+          coordinates: [
+            [1, 44],
+            [2, 44],
+            [2, 45],
+            [1, 45],
+          ],
+        },
+        {
+          lower: 200,
+          upper: 300,
+          coordinates: [
+            [1, 44],
+            [2, 44],
+            [2, 45],
+            [1, 45],
+          ],
+        },
+      ],
+    };
+
+    const core: EurocontrolDdrCore = {
+      airports: () => [],
+      navaids: () => [],
+      airways: () => [],
+      airspaces: () => [layered],
+      resolve_airport: () => null,
+      resolve_navaid: () => null,
+      resolve_airway: () => null,
+      resolve_airspace: () => layered,
+    };
+
+    const resolver = await createEurocontrolDdrResolver({ core });
+    const feature = (await resolver.airspaces['TESTCTA']) as {
+      properties: {
+        layers?: Array<{ lower: number; upper: number }>;
+      };
+    };
+    expect(feature.properties.layers?.length).to.equal(1);
+    expect(feature.properties.layers?.[0].lower).to.equal(100);
+    expect(feature.properties.layers?.[0].upper).to.equal(300);
+  });
+
+  it('matches NM-style LFBB layer bands after consolidation', async () => {
+    const bdx = {
+      designator: 'LFBBBDX',
+      name: 'BORDEAUX TOTAL',
+      type_: 'CS',
+      source: 'DDR',
+      layers: [
+        {
+          lower: 145,
+          upper: 195,
+          coordinates: [
+            [1, 44],
+            [2, 44],
+            [2, 45],
+            [1, 45],
+          ],
+        },
+        {
+          lower: 145,
+          upper: 195,
+          coordinates: [
+            [1.5, 44.2],
+            [2.4, 44.2],
+            [2.4, 45.1],
+            [1.5, 45.1],
+          ],
+        },
+        {
+          lower: 195,
+          upper: 265,
+          coordinates: [
+            [0.5, 43.8],
+            [2.8, 43.8],
+            [2.8, 45.3],
+            [0.5, 45.3],
+          ],
+        },
+        {
+          lower: 265,
+          upper: Number.POSITIVE_INFINITY,
+          coordinates: [
+            [0.2, 43.5],
+            [3, 43.5],
+            [3, 45.6],
+            [0.2, 45.6],
+          ],
+        },
+      ],
+    };
+
+    const rl = {
+      designator: 'LFBBRL',
+      name: 'BORDEAUX RL',
+      type_: 'ES',
+      source: 'DDR',
+      layers: [
+        {
+          lower: 195,
+          upper: Number.POSITIVE_INFINITY,
+          coordinates: [
+            [-1.7, 44.4],
+            [2.4, 44.4],
+            [2.4, 47.1],
+            [-1.7, 47.1],
+          ],
+        },
+      ],
+    };
+
+    const r1 = {
+      designator: 'LFBBR1',
+      name: 'BORDEAUX R1',
+      type_: 'ES',
+      source: 'DDR',
+      layers: [
+        {
+          lower: 195,
+          upper: 295,
+          coordinates: [
+            [-1.7, 44.4],
+            [1.1, 44.4],
+            [1.1, 47.0],
+            [-1.7, 47.0],
+          ],
+        },
+      ],
+    };
+
+    const byDesignator: Record<string, unknown> = {
+      LFBBBDX: bdx,
+      LFBBRL: rl,
+      LFBBR1: r1,
+    };
+
+    const core: EurocontrolDdrCore = {
+      airports: () => [],
+      navaids: () => [],
+      airways: () => [],
+      airspaces: () => [bdx, rl, r1],
+      resolve_airport: () => null,
+      resolve_navaid: () => null,
+      resolve_airway: () => null,
+      resolve_airspace: (designator: string) =>
+        byDesignator[designator] ?? null,
+    };
+
+    const resolver = await createEurocontrolDdrResolver({ core });
+
+    const bands = async (code: string): Promise<Array<[number, number]>> => {
+      const feature = (await resolver.resolve({ airspace: code })) as {
+        properties: {
+          layers?: Array<{ lower?: number; upper?: number }>;
+        };
+      };
+      return (feature.properties.layers ?? [])
+        .map(
+          (layer) =>
+            [Number(layer.lower), Number(layer.upper)] as [number, number]
+        )
+        .sort((a, b) => a[0] - b[0]);
+    };
+
+    expect(await bands('LFBBBDX')).to.deep.equal([
+      [145, 195],
+      [195, 265],
+      [265, Number.POSITIVE_INFINITY],
+    ]);
+    expect(await bands('LFBBRL')).to.deep.equal([
+      [195, Number.POSITIVE_INFINITY],
+    ]);
+    expect(await bands('LFBBR1')).to.deep.equal([[195, 295]]);
   });
 });
