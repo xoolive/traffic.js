@@ -141,8 +141,7 @@ function toPolygonGeometry(
     const features = layers
       .map((layer) => layerGeometryToFeature(layer?.geometry))
       .filter(
-        (value): value is Feature<Polygon | MultiPolygon> =>
-          value !== null
+        (value): value is Feature<Polygon | MultiPolygon> => value !== null
       );
     const merged = unionPolygons(features);
     if (!merged) {
@@ -172,10 +171,7 @@ function toPolygonGeometry(
   const features = layers
     .map((layer) => toPolygonRing(layer?.coordinates))
     .filter((ring) => ring.length >= 4)
-    .map(
-      (ring) =>
-        turf.polygon([ring]) as Feature<Polygon | MultiPolygon>
-    );
+    .map((ring) => turf.polygon([ring]) as Feature<Polygon | MultiPolygon>);
 
   if (features.length > 1) {
     const merged = unionPolygons(features);
@@ -296,14 +292,14 @@ function layerGeometryToFeature(
   }
   const typed = geometry as { type?: unknown; coordinates?: unknown };
   if (typed.type === 'Polygon' && Array.isArray(typed.coordinates)) {
-    return turf.polygon(
-      typed.coordinates as Position[][]
-    ) as Feature<Polygon | MultiPolygon>;
+    return turf.polygon(typed.coordinates as Position[][]) as Feature<
+      Polygon | MultiPolygon
+    >;
   }
   if (typed.type === 'MultiPolygon' && Array.isArray(typed.coordinates)) {
-    return turf.multiPolygon(
-      typed.coordinates as Position[][][]
-    ) as Feature<Polygon | MultiPolygon>;
+    return turf.multiPolygon(typed.coordinates as Position[][][]) as Feature<
+      Polygon | MultiPolygon
+    >;
   }
   return null;
 }

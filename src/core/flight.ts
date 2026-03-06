@@ -186,7 +186,11 @@ export class _Flight {
     // *previous kept point* before the RDP pass — matching Python's behaviour requires
     // the pure RDP mode.
     // @ts-ignore
-    const data_simplify = simplify(this.compute_xy().entries(), tolerance, true);
+    const data_simplify = simplify(
+      this.compute_xy().entries(),
+      tolerance,
+      true
+    );
     return new Flight(from(data_simplify));
   };
 
@@ -208,8 +212,9 @@ export class _Flight {
       // matching Python's pd.date_range(start, stop, periods=n) semantics.
       const n = rate;
       const step = (+t1 - +t0) / (n - 1);
-      timestamp_range = Array.from({ length: n }, (_, i) =>
-        new Date(+t0 + i * step)
+      timestamp_range = Array.from(
+        { length: n },
+        (_, i) => new Date(+t0 + i * step)
       );
     } else {
       // TimeInterval mode: snap to clean interval boundaries via d3.scaleTime().ticks().
@@ -262,18 +267,31 @@ export class _Flight {
   /** Render an Inputs.table() for this flight's data (requires setEnv). */
   table = (): HTMLElement => {
     const { Inputs, html, d3: d3env } = getEnv();
-    if (!Inputs) throw new Error('traffic.js: call setEnv({Inputs, html, d3}) before using table()');
+    if (!Inputs)
+      throw new Error(
+        'traffic.js: call setEnv({Inputs, html, d3}) before using table()'
+      );
     const fmt = (d3env ?? d3).utcFormat('%Y-%m-%d %H:%M:%S');
     return Inputs.table(this.data, {
-      columns: ['timestamp', 'icao24', 'callsign', 'latitude', 'longitude',
-                'altitude', 'groundspeed', 'track', 'vertical_rate'],
+      columns: [
+        'timestamp',
+        'icao24',
+        'callsign',
+        'latitude',
+        'longitude',
+        'altitude',
+        'groundspeed',
+        'track',
+        'vertical_rate',
+      ],
       width: { timestamp: '20%' },
       sort: 'timestamp',
       layout: 'auto',
       format: {
-        icao24:    (elt: string) => (html ?? (() => elt))`<code>${elt}</code>`,
-        callsign:  (elt: string) => (html ?? (() => elt))`<code>${elt}</code>`,
-        timestamp: (elt: Date)   => (html ?? (() => String(elt)))`<code>${fmt(elt)}</code>`,
+        icao24: (elt: string) => (html ?? (() => elt))`<code>${elt}</code>`,
+        callsign: (elt: string) => (html ?? (() => elt))`<code>${elt}</code>`,
+        timestamp: (elt: Date) =>
+          (html ?? (() => String(elt)))`<code>${fmt(elt)}</code>`,
       },
     });
   };
@@ -283,9 +301,14 @@ export class _Flight {
    * Returns a Promise<HTMLElement> with `.value = this` so `viewof` works in Observable.
    * Aircraft info (flag, registration) is looked up asynchronously via rs1090-wasm.
    */
-  view = async (options: { simplify?: number; graticule?: number } = {}): Promise<HTMLElement> => {
+  view = async (
+    options: { simplify?: number; graticule?: number } = {}
+  ): Promise<HTMLElement> => {
     const { html, d3: d3env, Plot } = getEnv();
-    if (!html || !Plot) throw new Error('traffic.js: call setEnv({html, d3, Plot}) before using view()');
+    if (!html || !Plot)
+      throw new Error(
+        'traffic.js: call setEnv({html, d3, Plot}) before using view()'
+      );
     const d3e = d3env ?? d3;
 
     const { graticule = 0 } = options;
@@ -301,20 +324,34 @@ export class _Flight {
       .geoAzimuthalEqualArea()
       .rotate([-(minlon + maxlon) / 2, -(minlat + maxlat) / 2])
       .translate([width / 2, width / 2])
-      .fitExtent([[0, 0], [width, width]], feat)
-      .clipExtent([[0, 0], [width, width]]);
+      .fitExtent(
+        [
+          [0, 0],
+          [width, width],
+        ],
+        feat
+      )
+      .clipExtent([
+        [0, 0],
+        [width, width],
+      ]);
 
     const marks: unknown[] = [Plot.geo(feat, { stroke: '#66cc99' })];
     if (graticule) {
-      marks.push(Plot.geo((d3e as any).geoGraticule().step([graticule, graticule])(), { strokeWidth: 0.25 }));
+      marks.push(
+        Plot.geo((d3e as any).geoGraticule().step([graticule, graticule])(), {
+          strokeWidth: 0.25,
+        })
+      );
     }
     const map = Plot.plot({ width, height: width, projection, marks });
 
-    const tf  = (d3e as any).utcFormat('%Y-%m-%dT%H:%M:%SZ');
+    const tf = (d3e as any).utcFormat('%Y-%m-%dT%H:%M:%SZ');
     const tdf = (d3e as any).utcFormat('%H hours %M minutes %S seconds');
-    const sr  = (d3e as any).format('.0f')(
+    const sr = (d3e as any).format('.0f')(
       (d3e as any).mean(
-        (d3e as any).pairs(this.data.array('timestamp'))
+        (d3e as any)
+          .pairs(this.data.array('timestamp'))
           .map((pair: [Date, Date]) => +pair[1] - +pair[0])
       ) / 1000
     );
@@ -328,10 +365,11 @@ export class _Flight {
     if (info) {
       // Format: <code>484506</code> · 🇫🇷 F-ABCD (A320)
       const flag = info.flag ?? '';
-      const reg  = info.registration ?? '';
+      const reg = info.registration ?? '';
       const type = info.typecode ? ` (${info.typecode})` : '';
-      const mid  = [flag, reg].filter(Boolean).join(' ');
-      aircraftNode.innerHTML = `<code>${this.icao24}</code>` +
+      const mid = [flag, reg].filter(Boolean).join(' ');
+      aircraftNode.innerHTML =
+        `<code>${this.icao24}</code>` +
         (mid ? ` · ${mid}${type}` : type ? ` · ${type}` : '');
     } else {
       aircraftNode.innerHTML = `<code>${this.icao24}</code>`;
@@ -344,7 +382,9 @@ export class _Flight {
         <li><b>aircraft:</b> ${aircraftNode}</li>
         <li><b>start:</b> <code>${tf(this.start)}</code></li>
         <li><b>stop:</b> <code>${tf(this.stop)}</code></li>
-        <li><b>duration:</b> ${tdf(this.stop.getTime() - this.start.getTime())}</li>
+        <li>
+          <b>duration:</b> ${tdf(this.stop.getTime() - this.start.getTime())}
+        </li>
         <li><b>sampling rate:</b> ${sr} second(s)</li>
       </ul>
       ${map}

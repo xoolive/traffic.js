@@ -162,7 +162,11 @@ function unionPolygons(
   // Some pairs failed topologically — fold them in as extra rings.
   const fallbackGeom = combineAsMultiPolygon([merged, ...failed]);
   if (!fallbackGeom) return merged;
-  return { type: 'Feature', properties: {}, geometry: fallbackGeom } as Feature<MultiPolygon>;
+  return {
+    type: 'Feature',
+    properties: {},
+    geometry: fallbackGeom,
+  } as Feature<MultiPolygon>;
 }
 
 /** Fallback: collect all rings into a raw MultiPolygon without topology merging. */
@@ -202,14 +206,14 @@ function geometryToFeature(
   if (!geometry || typeof geometry !== 'object') return null;
   const g = geometry as { type?: unknown; coordinates?: unknown };
   if (g.type === 'Polygon' && Array.isArray(g.coordinates)) {
-    return turf.polygon(
-      g.coordinates as Position[][]
-    ) as Feature<Polygon | MultiPolygon>;
+    return turf.polygon(g.coordinates as Position[][]) as Feature<
+      Polygon | MultiPolygon
+    >;
   }
   if (g.type === 'MultiPolygon' && Array.isArray(g.coordinates)) {
-    return turf.multiPolygon(
-      g.coordinates as Position[][][]
-    ) as Feature<Polygon | MultiPolygon>;
+    return turf.multiPolygon(g.coordinates as Position[][][]) as Feature<
+      Polygon | MultiPolygon
+    >;
   }
   return null;
 }
@@ -260,15 +264,14 @@ export function buildAirspaceGeometry(
       const upper =
         layer.upper === null || layer.upper === undefined
           ? null
-          : Number.isFinite(Number(layer.upper)) || Number(layer.upper) === Infinity
+          : Number.isFinite(Number(layer.upper)) ||
+            Number(layer.upper) === Infinity
           ? Number(layer.upper)
           : null;
       return {
         lower,
         upper,
-        feature: turf.polygon([ring]) as Feature<
-          Polygon | MultiPolygon
-        >,
+        feature: turf.polygon([ring]) as Feature<Polygon | MultiPolygon>,
       };
     })
     .filter(
@@ -358,9 +361,7 @@ export function buildAirspaceGeometry(
   // Step 5: compute flat 2D footprint from all merged-layer geometries
   const allFeatures = mergedLayers
     .map((ml) => geometryToFeature(ml.geometry))
-    .filter(
-      (f): f is Feature<Polygon | MultiPolygon> => f !== null
-    );
+    .filter((f): f is Feature<Polygon | MultiPolygon> => f !== null);
 
   const footprint = unionPolygons(allFeatures);
   const geometry: GeoJsonGeometry = footprint

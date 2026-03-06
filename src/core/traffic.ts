@@ -87,18 +87,31 @@ export class _Traffic implements Iterable<Flight> {
   /** Render an Inputs.table() for this traffic's raw data (requires setEnv). */
   table = (): HTMLElement => {
     const { Inputs, html, d3: d3env } = getEnv();
-    if (!Inputs) throw new Error('traffic.js: call setEnv({Inputs, html, d3}) before using table()');
+    if (!Inputs)
+      throw new Error(
+        'traffic.js: call setEnv({Inputs, html, d3}) before using table()'
+      );
     const fmt = (d3env ?? d3).utcFormat('%Y-%m-%d %H:%M:%S');
     return Inputs.table(this.data, {
-      columns: ['timestamp', 'icao24', 'callsign', 'latitude', 'longitude',
-                'altitude', 'groundspeed', 'track', 'vertical_rate'],
+      columns: [
+        'timestamp',
+        'icao24',
+        'callsign',
+        'latitude',
+        'longitude',
+        'altitude',
+        'groundspeed',
+        'track',
+        'vertical_rate',
+      ],
       width: { timestamp: '20%' },
       sort: 'timestamp',
       layout: 'auto',
       format: {
-        icao24:    (elt: string) => (html ?? (() => elt))`<code>${elt}</code>`,
-        callsign:  (elt: string) => (html ?? (() => elt))`<code>${elt}</code>`,
-        timestamp: (elt: Date)   => (html ?? (() => String(elt)))`<code>${fmt(elt)}</code>`,
+        icao24: (elt: string) => (html ?? (() => elt))`<code>${elt}</code>`,
+        callsign: (elt: string) => (html ?? (() => elt))`<code>${elt}</code>`,
+        timestamp: (elt: Date) =>
+          (html ?? (() => String(elt)))`<code>${fmt(elt)}</code>`,
       },
     });
   };

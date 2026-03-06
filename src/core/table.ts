@@ -62,42 +62,44 @@ export type Mixin<T extends AnyFunction> = InstanceType<ReturnType<T>>;
 export function TableMixin<T extends AnyConstructor>(base: T) {
   // Name the mixin class after its base so instances show the right class name
   // (e.g. "Flight" instead of "TableWrapper") in Observable's inspector.
-  const klass = { [base.name]: class extends base {
-    static _ctor() {
-      return this as unknown as new (
-        data: unknown,
-        time_fmt?: string
-      ) => unknown;
-    }
+  const klass = {
+    [base.name]: class extends base {
+      static _ctor() {
+        return this as unknown as new (
+          data: unknown,
+          time_fmt?: string
+        ) => unknown;
+      }
 
-    static from(array: Array<Object>) {
-      const Ctor = this._ctor();
-      return new Ctor(from(array), '%Q');
-    }
-    static fromArrayBuffer(buf: ArrayBuffer) {
-      const Ctor = this._ctor();
-      return new Ctor(fromArrayBuffer(buf), '%Q');
-    }
-    static fromArrow(arrow: Array<Object>) {
-      const Ctor = this._ctor();
-      return new Ctor(fromArrow(arrow), '%Q');
-    }
-    static fromJSON(json_or_str: Array<Object> | Object | string) {
-      const Ctor = this._ctor();
-      return new Ctor(fromJSON(json_or_str), '%Q');
-    }
-    static async fromURL(url: string) {
-      const Ctor = this._ctor();
-      return new Ctor(await fromURL(url), '%Q');
-    }
-    static async fromSample(identifier: string, folder: string = 'featured') {
-      return this.fromURL(
-        'https://raw.githubusercontent.com/' +
-          'xoolive/traffic/master/src/traffic/data/samples/' +
-          `${folder}/${identifier}.json.gz`
-      );
-    }
-  } }[base.name];
+      static from(array: Array<Object>) {
+        const Ctor = this._ctor();
+        return new Ctor(from(array), '%Q');
+      }
+      static fromArrayBuffer(buf: ArrayBuffer) {
+        const Ctor = this._ctor();
+        return new Ctor(fromArrayBuffer(buf), '%Q');
+      }
+      static fromArrow(arrow: Array<Object>) {
+        const Ctor = this._ctor();
+        return new Ctor(fromArrow(arrow), '%Q');
+      }
+      static fromJSON(json_or_str: Array<Object> | Object | string) {
+        const Ctor = this._ctor();
+        return new Ctor(fromJSON(json_or_str), '%Q');
+      }
+      static async fromURL(url: string) {
+        const Ctor = this._ctor();
+        return new Ctor(await fromURL(url), '%Q');
+      }
+      static async fromSample(identifier: string, folder: string = 'featured') {
+        return this.fromURL(
+          'https://raw.githubusercontent.com/' +
+            'xoolive/traffic/master/src/traffic/data/samples/' +
+            `${folder}/${identifier}.json.gz`
+        );
+      }
+    },
+  }[base.name];
   return klass;
 }
 
