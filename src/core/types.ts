@@ -1,5 +1,5 @@
-import { Op } from 'arquero/dist/types/op/op';
-import ColumnTable from 'arquero/dist/types/table/column-table';
-import { Struct } from 'arquero/dist/types/table/transformable';
+import type { ColumnTable } from 'arquero';
+import type { Op } from 'arquero/dist/types/op/op-api';
+import type { Struct } from 'arquero/dist/types/table/types';
 
-export { ColumnTable, Op, Struct };
+export type { ColumnTable, Op, Struct };

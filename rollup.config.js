@@ -16,7 +16,7 @@ function onwarn(warning, defaultHandler) {
 
 const name = 'traffic';
 const external = [
-  ...Object.keys(pkg.dependencies || {}),
+  ...Object.keys(pkg.dependencies || {}).filter((d) => d !== '@turf/turf'),
   ...Object.keys(pkg.peerDependencies || {}),
 ];
 
@@ -45,7 +45,6 @@ const globals = {
   arquero: 'aq',
   d3: 'd3',
   fflate: 'fflate',
-  '@turf/turf': 'turf',
   'simplify-js': 'simplify-js',
 };
 

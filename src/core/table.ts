@@ -8,7 +8,8 @@ const from = function (array: Array<Object>) {
 };
 
 const fromURL = async function (url: string) {
-  return await aq.load(url, { as: 'arrayBuffer', using: fromArrayBuffer });
+  const buf = await fetch(url).then((r) => r.arrayBuffer());
+  return fromArrayBuffer(buf);
 };
 
 const fromJSON = function (json_or_str: Array<Object> | Object | string) {
@@ -18,8 +19,8 @@ const fromJSON = function (json_or_str: Array<Object> | Object | string) {
   return aq_loader(json);
 };
 
-const fromArrow = function (arrow: Array<Object>) {
-  return aq.fromArrow(arrow);
+const fromArrow = function (arrow: unknown) {
+  return aq.fromArrow(arrow as Parameters<typeof aq.fromArrow>[0]);
 };
 
 const fromArrayBuffer = function (buf: ArrayBuffer) {
@@ -59,7 +60,9 @@ export type Mixin<T extends AnyFunction> = InstanceType<ReturnType<T>>;
 // This mixin adds all the methods to construct a new Flight, Traffic, etc.
 
 export function TableMixin<T extends AnyConstructor>(base: T) {
-  return class TableWrapper extends base {
+  // Name the mixin class after its base so instances show the right class name
+  // (e.g. "Flight" instead of "TableWrapper") in Observable's inspector.
+  const klass = { [base.name]: class extends base {
     static _ctor() {
       return this as unknown as new (
         data: unknown,
@@ -94,7 +97,8 @@ export function TableMixin<T extends AnyConstructor>(base: T) {
           `${folder}/${identifier}.json.gz`
       );
     }
-  };
+  } }[base.name];
+  return klass;
 }
 
 export type TableMixin = Mixin<typeof TableMixin>;

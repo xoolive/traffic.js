@@ -4,6 +4,7 @@ import * as d3 from 'd3';
 import { TableMixin } from './table.js';
 import { Flight } from './flight.js';
 import { ColumnTable } from './types.js';
+import { getEnv } from './env.js';
 
 function flightMatchesText(flight: Flight, text: string): boolean {
   const query = text.toUpperCase();
@@ -82,9 +83,28 @@ export class _Traffic implements Iterable<Flight> {
         flight.icao24.toUpperCase() === upper
     );
   };
+
+  /** Render an Inputs.table() for this traffic's raw data (requires setEnv). */
+  table = (): HTMLElement => {
+    const { Inputs, html, d3: d3env } = getEnv();
+    if (!Inputs) throw new Error('traffic.js: call setEnv({Inputs, html, d3}) before using table()');
+    const fmt = (d3env ?? d3).utcFormat('%Y-%m-%d %H:%M:%S');
+    return Inputs.table(this.data, {
+      columns: ['timestamp', 'icao24', 'callsign', 'latitude', 'longitude',
+                'altitude', 'groundspeed', 'track', 'vertical_rate'],
+      width: { timestamp: '20%' },
+      sort: 'timestamp',
+      layout: 'auto',
+      format: {
+        icao24:    (elt: string) => (html ?? (() => elt))`<code>${elt}</code>`,
+        callsign:  (elt: string) => (html ?? (() => elt))`<code>${elt}</code>`,
+        timestamp: (elt: Date)   => (html ?? (() => String(elt)))`<code>${fmt(elt)}</code>`,
+      },
+    });
+  };
 }
 
-class _TrafficWithLookup extends TableMixin(_Traffic) {
+class Traffic extends TableMixin(_Traffic) {
   constructor(data: ColumnTable, time_fmt?: string) {
     super(data, time_fmt);
     return new Proxy(this, {
@@ -97,9 +117,9 @@ class _TrafficWithLookup extends TableMixin(_Traffic) {
         }
         return obj.get(prop);
       },
-    }) as _TrafficWithLookup;
+    }) as Traffic;
   }
 }
 
-export const Traffic = _TrafficWithLookup;
-export type Traffic = InstanceType<typeof Traffic>;
+export { Traffic };
+export type TrafficInstance = InstanceType<typeof Traffic>;

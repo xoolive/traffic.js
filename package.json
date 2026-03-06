@@ -28,8 +28,8 @@
   "author": "Xavier Olive",
   "license": "MIT",
   "dependencies": {
-    "@turf/turf": "^6.5.0",
-    "arquero": "^4.8.8",
+    "@turf/turf": "^7.3.4",
+    "arquero": "^8.0.3",
     "d3": "^7.3.0",
     "fflate": "^0.7.3",
     "overpass-wizard": "^0.0.9",

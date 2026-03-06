@@ -1,4 +1,5 @@
 import * as turf from '@turf/turf';
+import type { Feature } from 'geojson';
 import { agg, escape, from, op } from 'arquero';
 import * as d3 from 'd3';
 import { GeoProjection } from 'd3';
@@ -7,6 +8,8 @@ import simplify from 'simplify-js';
 import { TableMixin } from './table.js';
 import { make_date, timelike } from './time.js';
 import { ColumnTable, Op, Struct } from './types.js';
+import { getEnv } from './env.js';
+import { aircraftInfo } from './aircraft.js';
 
 interface Entry {
   latitude: number;
@@ -37,7 +40,7 @@ export class _Flight {
 
   entries = () => Array.from(this.data) as Array<Entry>;
 
-  feature = (spec: RollupObj = {}): turf.Feature | undefined => {
+  feature = (spec: RollupObj = {}): Feature | undefined => {
     const coords = this.entries()
       .filter((elt) => elt.longitude !== null)
       .map((elt) => [elt.longitude, elt.latitude]);
@@ -178,8 +181,12 @@ export class _Flight {
   };
 
   simplify = (tolerance: number) => {
+    // highQuality=true: use full Ramer-Douglas-Peucker (no radial-distance pre-filter).
+    // Without it, simplify-js drops points that are within `tolerance` of the
+    // *previous kept point* before the RDP pass — matching Python's behaviour requires
+    // the pure RDP mode.
     // @ts-ignore
-    const data_simplify = simplify(this.compute_xy().entries(), tolerance);
+    const data_simplify = simplify(this.compute_xy().entries(), tolerance, true);
     return new Flight(from(data_simplify));
   };
 
@@ -189,17 +196,28 @@ export class _Flight {
     if (rate === null) {
       return this;
     }
-    if (typeof rate === 'number') {
-      // if rate is a number
-      rate = d3.timeMillisecond.every(this.duration / rate);
-    }
-    const objects = this.data.objects();
 
-    // Construct the timescale
-    const timestamp_range = d3
-      .scaleTime() // 👉 scaleUtc??
-      .domain([this.min('timestamp'), this.max('timestamp')])
-      .ticks(rate as d3.TimeInterval);
+    const objects = this.data.objects() as Struct[];
+    const t0 = this.min('timestamp') as Date;
+    const t1 = this.max('timestamp') as Date;
+
+    let timestamp_range: Date[];
+
+    if (typeof rate === 'number') {
+      // Integer mode: n evenly spaced timestamps from start to stop inclusive,
+      // matching Python's pd.date_range(start, stop, periods=n) semantics.
+      const n = rate;
+      const step = (+t1 - +t0) / (n - 1);
+      timestamp_range = Array.from({ length: n }, (_, i) =>
+        new Date(+t0 + i * step)
+      );
+    } else {
+      // TimeInterval mode: snap to clean interval boundaries via d3.scaleTime().ticks().
+      timestamp_range = d3
+        .scaleTime()
+        .domain([t0, t1])
+        .ticks(rate as d3.TimeInterval);
+    }
 
     const interpolate = (ts: Date, a: WithTimestamp, b: WithTimestamp) => {
       const t = (+ts - +a.timestamp) / (+b.timestamp - +a.timestamp);
@@ -212,9 +230,9 @@ export class _Flight {
     const resampled_array = new Array();
     let i = 0;
     for (const t of timestamp_range) {
-      // Identify timestamps with values before and after the timestamp
-      while (objects[i].timestamp < t && objects[i + 1]?.timestamp <= t) ++i;
-      if (objects[i + 1])
+      // Advance i so that objects[i] <= t < objects[i+1]
+      while (objects[i + 1] && +objects[i + 1].timestamp <= +t) ++i;
+      if (i + 1 < objects.length) {
         resampled_array.push(
           interpolate(
             t,
@@ -222,19 +240,117 @@ export class _Flight {
             objects[i + 1] as WithTimestamp
           )
         );
+      } else if (+t === +(objects[i] as WithTimestamp).timestamp) {
+        // Exactly at the last point (t === stop) — include it
+        resampled_array.push(objects[i]);
+      }
     }
 
     // Return an object in the original class
-    return new Flight(from(resampled_array)); // aq.from
+    return new Flight(from(resampled_array));
   };
 
-  intersects = (feature: turf.Feature) => {
+  intersects = (feature: Feature) => {
     const flight_feature = this.feature();
     return (
       flight_feature !== undefined &&
       (turf.booleanContains(feature, flight_feature) ||
         turf.booleanCrosses(feature, flight_feature))
     );
+  };
+
+  /** Render an Inputs.table() for this flight's data (requires setEnv). */
+  table = (): HTMLElement => {
+    const { Inputs, html, d3: d3env } = getEnv();
+    if (!Inputs) throw new Error('traffic.js: call setEnv({Inputs, html, d3}) before using table()');
+    const fmt = (d3env ?? d3).utcFormat('%Y-%m-%d %H:%M:%S');
+    return Inputs.table(this.data, {
+      columns: ['timestamp', 'icao24', 'callsign', 'latitude', 'longitude',
+                'altitude', 'groundspeed', 'track', 'vertical_rate'],
+      width: { timestamp: '20%' },
+      sort: 'timestamp',
+      layout: 'auto',
+      format: {
+        icao24:    (elt: string) => (html ?? (() => elt))`<code>${elt}</code>`,
+        callsign:  (elt: string) => (html ?? (() => elt))`<code>${elt}</code>`,
+        timestamp: (elt: Date)   => (html ?? (() => String(elt)))`<code>${fmt(elt)}</code>`,
+      },
+    });
+  };
+
+  /**
+   * Render a map + metadata card for this flight (requires setEnv).
+   * Returns a Promise<HTMLElement> with `.value = this` so `viewof` works in Observable.
+   * Aircraft info (flag, registration) is looked up asynchronously via rs1090-wasm.
+   */
+  view = async (options: { simplify?: number; graticule?: number } = {}): Promise<HTMLElement> => {
+    const { html, d3: d3env, Plot } = getEnv();
+    if (!html || !Plot) throw new Error('traffic.js: call setEnv({html, d3, Plot}) before using view()');
+    const d3e = d3env ?? d3;
+
+    const { graticule = 0 } = options;
+    const width = 300;
+    const feat = this.feature({}) as any;
+
+    const minlat = this.min('latitude');
+    const maxlat = this.max('latitude');
+    const minlon = this.min('longitude');
+    const maxlon = this.max('longitude');
+
+    const projection = (d3e as any)
+      .geoAzimuthalEqualArea()
+      .rotate([-(minlon + maxlon) / 2, -(minlat + maxlat) / 2])
+      .translate([width / 2, width / 2])
+      .fitExtent([[0, 0], [width, width]], feat)
+      .clipExtent([[0, 0], [width, width]]);
+
+    const marks: unknown[] = [Plot.geo(feat, { stroke: '#66cc99' })];
+    if (graticule) {
+      marks.push(Plot.geo((d3e as any).geoGraticule().step([graticule, graticule])(), { strokeWidth: 0.25 }));
+    }
+    const map = Plot.plot({ width, height: width, projection, marks });
+
+    const tf  = (d3e as any).utcFormat('%Y-%m-%dT%H:%M:%SZ');
+    const tdf = (d3e as any).utcFormat('%H hours %M minutes %S seconds');
+    const sr  = (d3e as any).format('.0f')(
+      (d3e as any).mean(
+        (d3e as any).pairs(this.data.array('timestamp'))
+          .map((pair: [Date, Date]) => +pair[1] - +pair[0])
+      ) / 1000
+    );
+
+    // Look up aircraft info — fails silently if rs1090-wasm not available
+    const info = await aircraftInfo(this.icao24);
+
+    // Build aircraft node as a real DOM span — htl doesn't support
+    // { innerHTML } in data position; inserting a node is always safe.
+    const aircraftNode = document.createElement('span');
+    if (info) {
+      // Format: <code>484506</code> · 🇫🇷 F-ABCD (A320)
+      const flag = info.flag ?? '';
+      const reg  = info.registration ?? '';
+      const type = info.typecode ? ` (${info.typecode})` : '';
+      const mid  = [flag, reg].filter(Boolean).join(' ');
+      aircraftNode.innerHTML = `<code>${this.icao24}</code>` +
+        (mid ? ` · ${mid}${type}` : type ? ` · ${type}` : '');
+    } else {
+      aircraftNode.innerHTML = `<code>${this.icao24}</code>`;
+    }
+
+    const el = html`<div>
+      <h4>Flight</h4>
+      <ul>
+        <li><b>callsign:</b> <code>${this.callsign}</code></li>
+        <li><b>aircraft:</b> ${aircraftNode}</li>
+        <li><b>start:</b> <code>${tf(this.start)}</code></li>
+        <li><b>stop:</b> <code>${tf(this.stop)}</code></li>
+        <li><b>duration:</b> ${tdf(this.stop.getTime() - this.start.getTime())}</li>
+        <li><b>sampling rate:</b> ${sr} second(s)</li>
+      </ul>
+      ${map}
+    </div>` as HTMLElement & { value: unknown };
+    el.value = this;
+    return el;
   };
 }
 
