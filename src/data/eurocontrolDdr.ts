@@ -1,6 +1,7 @@
 import * as turf from '@turf/turf';
 import type { Feature, Polygon, MultiPolygon, Position } from 'geojson';
 
+/** @internal */
 type FetchLike = (
   input: RequestInfo | URL,
   init?: RequestInit
@@ -19,8 +20,16 @@ export interface EurocontrolDdrCore {
   resolve_airspace?(
     designator: string
   ): unknown | null | Promise<unknown | null>;
+  /** Available when backed by a thrust-wasm EurocontrolResolver (v0.3+). */
+  enrichRoute?(route: string): RouteSegment[];
 }
 
+// RouteSegment and related types are imported from field15.ts when available,
+// but duplicated here as a local alias to avoid a circular dependency.
+type RouteSegment = import('./field15.js').RouteSegment;
+type RouteSegmentFeature = import('./field15.js').RouteSegmentFeature;
+
+/** @internal */
 interface ThrustWasmModule {
   default?: (input?: unknown) => Promise<unknown>;
   EurocontrolResolver: {
@@ -28,6 +37,7 @@ interface ThrustWasmModule {
   };
 }
 
+/** @internal */
 type CoreFactory = (archive: Uint8Array) => EurocontrolDdrCore;
 
 type EntityName = 'airports' | 'navaids' | 'airways' | 'airspaces';
@@ -794,6 +804,59 @@ export class EurocontrolDdrResolverJS {
       return this.airspaces.get(query.airspace);
     }
     throw new Error('resolve: pass one of airport/navaid/fix/airway/airspace');
+  }
+
+  /**
+   * Parse and resolve a raw ICAO field 15 route string into geographic segments.
+   *
+   * Returns an array of `{ start, end, name? }` objects. Each point has
+   * `{ latitude, longitude, name?, kind? }`.
+   *
+   * Requires thrust-wasm ≥ 0.3 (the `enrichRoute` method on EurocontrolResolver).
+   * Throws if the loaded WASM build does not expose `enrichRoute`.
+   */
+  enrichRoute(route: string): RouteSegment[] {
+    if (typeof this._core.enrichRoute !== 'function') {
+      throw new Error(
+        '[traffic.js] enrichRoute is unavailable in the loaded thrust-wasm build. ' +
+          'Upgrade thrust-wasm to a version that exposes EurocontrolResolver.enrichRoute.'
+      );
+    }
+    return this._core.enrichRoute(route);
+  }
+
+  /**
+   * Parse and resolve a field 15 route string, returning a GeoJSON FeatureCollection
+   * of LineString features — one per route segment.
+   *
+   * Each feature's `properties` contains:
+   * - `name` — airway name or `null` for DCT legs
+   * - `start_name`, `end_name` — waypoint names
+   * - `start_kind`, `end_kind` — point kind (`"airport"`, `"navaid"`, `"fix"`, …)
+   */
+  enrichRouteAsGeoJSON(route: string): {
+    type: 'FeatureCollection';
+    features: RouteSegmentFeature[];
+  } {
+    const segments = this.enrichRoute(route);
+    const features: RouteSegmentFeature[] = segments.map((seg) => ({
+      type: 'Feature' as const,
+      geometry: {
+        type: 'LineString' as const,
+        coordinates: [
+          [seg.start.longitude, seg.start.latitude],
+          [seg.end.longitude, seg.end.latitude],
+        ],
+      },
+      properties: {
+        name: seg.name ?? null,
+        start_name: seg.start.name ?? null,
+        end_name: seg.end.name ?? null,
+        start_kind: seg.start.kind ?? null,
+        end_kind: seg.end.kind ?? null,
+      },
+    }));
+    return { type: 'FeatureCollection', features };
   }
 }
 

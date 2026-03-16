@@ -1,0 +1,34 @@
+{
+  "entryPoints": ["src/index.ts"],
+  "entryPointStrategy": "resolve",
+  "out": "docs",
+  "name": "traffic.js",
+  "readme": "readme.md",
+  "tsconfig": "tsconfig.json",
+  "excludeInternal": true,
+  "excludePrivate": true,
+  "excludeProtected": false,
+  "searchInComments": true,
+  "includeVersion": true,
+  "navigationLinks": {
+    "GitHub": "https://github.com/xoolive/traffic.js",
+    "Python traffic": "https://traffic-viz.github.io"
+  },
+  "categoryOrder": [
+    "Configuration",
+    "Resolvers",
+    "Field 15",
+    "Flights",
+    "Data",
+    "*"
+  ],
+  "groupOrder": ["Functions", "Classes", "Interfaces", "Type Aliases", "*"],
+  "intentionallyNotExported": [
+    "_Flight",
+    "ThrustWasmModule",
+    "CoreFactory",
+    "FetchLike",
+    "EurocontrolResolverWithField15",
+    "NasrResolverCore"
+  ]
+}

@@ -31,10 +31,9 @@ async function loadRs1090(): Promise<Rs1090Module | null> {
     try {
       // Observable / browser: load via unpkg web target
       if (typeof window !== 'undefined') {
-        // @ts-ignore — dynamic URL import, resolved at runtime in browser/Observable
-        const mod = (await import(
-          /* @vite-ignore */ 'https://unpkg.com/rs1090-wasm/web/rs1090_wasm.js'
-        )) as any;
+        const rs1090Url = 'https://unpkg.com/rs1090-wasm/web/rs1090_wasm.js';
+        // dynamic import via variable — no static type for the URL module
+        const mod = (await import(/* @vite-ignore */ rs1090Url)) as any;
         await mod.default(
           'https://unpkg.com/rs1090-wasm/web/rs1090_wasm_bg.wasm'
         );

@@ -14,7 +14,7 @@ function flightMatchesText(flight: Flight, text: string): boolean {
   );
 }
 
-export class _Traffic implements Iterable<Flight> {
+class _Traffic implements Iterable<Flight> {
   [key: string]: unknown;
   data: ColumnTable;
   private _segmentsCache: Flight[] | null = null;
@@ -135,4 +135,4 @@ class Traffic extends TableMixin(_Traffic) {
 }
 
 export { Traffic };
-export type TrafficInstance = InstanceType<typeof Traffic>;
+export type TrafficInstance = _Traffic;
