@@ -10,22 +10,28 @@ import { make_date, timelike } from './time.js';
 import { ColumnTable, Op, Struct } from './types.js';
 import { getEnv } from './env.js';
 import { aircraftInfo } from './aircraft.js';
+import {
+  holdingPatterns,
+  unwrapDegrees,
+  HoldingPatternOptions,
+} from './holdingPattern.js';
 
-interface Entry {
+export interface Entry {
   latitude: number;
   longitude: number;
   timestamp: Date;
+  [key: string]: unknown;
 }
 
-interface RollupObj {
+export interface RollupObj {
   [key: string]: string | Function | Op;
 }
 
-interface WithTimestamp {
+export interface WithTimestamp {
   timestamp: Date;
 }
 
-export class _Flight {
+class _Flight {
   data: ColumnTable;
 
   constructor(data: ColumnTable, time_fmt?: string) {
@@ -185,9 +191,11 @@ export class _Flight {
     // Without it, simplify-js drops points that are within `tolerance` of the
     // *previous kept point* before the RDP pass — matching Python's behaviour requires
     // the pure RDP mode.
-    // @ts-ignore
+    // simplify-js Point type requires {x,y} but our Entry objects have lon/lat fields;
+    // the cast is safe — simplify-js only reads the field names at runtime via options.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data_simplify = simplify(
-      this.compute_xy().entries(),
+      this.compute_xy().entries() as any[],
       tolerance,
       true
     );
@@ -254,6 +262,79 @@ export class _Flight {
     // Return an object in the original class
     return new Flight(from(resampled_array));
   };
+
+  /**
+   * Iterate over overlapping sub-flights of fixed `duration` advancing by `step`.
+   *
+   * Both arguments are in **milliseconds**.  Mirrors Python's
+   * `Flight.sliding_windows(duration, step)`.
+   *
+   * @param duration - Window length in ms (default: 6 min = 360 000).
+   * @param step     - Advance per iteration in ms (default: 2 min = 120 000).
+   */
+  *slidingWindows(
+    duration: number = 6 * 60 * 1000,
+    step: number = 2 * 60 * 1000
+  ): Generator<Flight> {
+    const rows = this.data.objects() as Struct[];
+    if (rows.length < 2) return;
+    const tStart = +this.start;
+    const tEnd = +this.stop;
+    for (let t = tStart; t + duration <= tEnd + 1; t += step) {
+      const win = this.between(new Date(t), new Date(t + duration));
+      if (win.data.numRows() > 0) yield win;
+    }
+  }
+
+  /**
+   * Return a new Flight with an additional `track_unwrapped` column.
+   *
+   * Applies the same algorithm as `numpy.unwrap` on the `track` column
+   * (degrees 0–360): consecutive differences exceeding ±180° are corrected
+   * by adding/subtracting 360°, with the offset accumulated for all
+   * subsequent samples.
+   */
+  withTrackUnwrapped(): Flight {
+    const rows = this.data.objects() as Struct[];
+    const tracks = rows.map((r) => r['track'] as number | null);
+    const validTracks = tracks.map((v) =>
+      v === null || v === undefined || isNaN(v as number) ? 0 : v
+    );
+    const unwrapped = unwrapDegrees(validTracks);
+    const enriched = rows.map((r, i) => ({
+      ...r,
+      track_unwrapped:
+        tracks[i] === null || tracks[i] === undefined ? null : unwrapped[i],
+    }));
+    return new Flight(from(enriched));
+  }
+
+  /**
+   * Async generator that yields each detected holding pattern as a sub-Flight.
+   *
+   * Uses a pre-trained ONNX model (StandardScaler + MLP classifier) to
+   * classify 6-minute sliding windows of track angle change.
+   *
+   * ```ts
+   * for await (const hp of flight.holdingPattern()) {
+   *   console.log(hp.start, hp.stop);
+   * }
+   * ```
+   *
+   * @param opts - Detection options (duration, step, threshold, samples, modelPath).
+   */
+  async *holdingPattern(
+    opts: HoldingPatternOptions = {}
+  ): AsyncGenerator<Flight> {
+    const rows = this.data.objects() as Struct[];
+    for await (const seg of holdingPatterns(
+      rows as Array<Record<string, unknown>>,
+      opts
+    )) {
+      const sub = this.between(seg.start, seg.stop);
+      if (sub.data.numRows() > 0) yield sub;
+    }
+  }
 
   intersects = (feature: Feature) => {
     const flight_feature = this.feature();
@@ -363,9 +444,9 @@ export class _Flight {
     // { innerHTML } in data position; inserting a node is always safe.
     const aircraftNode = document.createElement('span');
     if (info) {
-      // Format: <code>484506</code> · 🇫🇷 F-ABCD (A320)
+      // Format: <code>484506</code> · 🇫🇷 <code>F-ABCD</code> (A320)
       const flag = info.flag ?? '';
-      const reg = info.registration ?? '';
+      const reg = `<code>${info.registration ?? ''}</code>`;
       const type = info.typecode ? ` (${info.typecode})` : '';
       const mid = [flag, reg].filter(Boolean).join(' ');
       aircraftNode.innerHTML =
@@ -394,5 +475,4 @@ export class _Flight {
   };
 }
 
-export const Flight = TableMixin(_Flight);
-export type Flight = InstanceType<typeof Flight>;
+export class Flight extends TableMixin(_Flight) {}

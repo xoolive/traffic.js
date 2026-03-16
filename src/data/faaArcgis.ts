@@ -1,9 +1,11 @@
+/** @internal */
 type FetchLike = (
   input: RequestInfo | URL,
   init?: RequestInit
 ) => Promise<Response>;
 
 import { loadThrustWasmModule } from './thrustWasm.js';
+import type { RouteSegment, RouteSegmentFeature } from './field15.js';
 import * as turf from '@turf/turf';
 import type { Feature, Polygon, MultiPolygon, Position } from 'geojson';
 
@@ -138,13 +140,17 @@ export interface FaaArcgisCore {
   resolve_navaid(code: string): unknown | null | Promise<unknown | null>;
   resolve_airway(name: string): unknown | null | Promise<unknown | null>;
   resolve_airspace(name: string): unknown | null | Promise<unknown | null>;
+  /** Available in thrust-wasm ≥ 0.3 only — may be absent on older builds. */
+  enrichRoute?(route: string): RouteSegment[];
 }
 
+/** @internal */
 interface ThrustWasmModule {
   default?: (input?: unknown) => Promise<unknown>;
   FaaArcgisResolver: new (collections: unknown[]) => FaaArcgisCore;
 }
 
+/** @internal */
 type CoreFactory = (collections: unknown[]) => FaaArcgisCore;
 
 export type ResolverCollection<T> = {
@@ -977,6 +983,76 @@ export class FaaArcgisResolverJS {
       return this.airspaces.get(query.airspace);
     }
     throw new Error('resolve: pass one of airport/navaid/fix/airway/airspace');
+  }
+
+  // -------------------------------------------------------------------------
+  // Route enrichment (field 15) — requires thrust-wasm ≥ 0.3
+  // -------------------------------------------------------------------------
+
+  /**
+   * Parse and resolve a raw ICAO field 15 route string into geographic segments
+   * using FAA ArcGIS navigation data.
+   *
+   * Requires a thrust-wasm build that includes `FaaArcgisResolver.enrichRoute`
+   * (≥ 0.3). Throws if the loaded WASM build does not expose the method.
+   *
+   * Returns `{ start, end, name? }` objects where `start`/`end` are
+   * `{ latitude, longitude, name?, kind? }`.
+   *
+   * This method enables `FaaArcgisResolverJS` to be used as a source in a
+   * {@link Resolver} via `resolver.withArcgis(arcgis)`.
+   */
+  enrichRoute(route: string): RouteSegment[] {
+    // Prefer the external core (set during construction) if available and if
+    // it has the enrichRoute method.
+    if (this._core && typeof this._core.enrichRoute === 'function') {
+      return this._core.enrichRoute(route);
+    }
+    // When no preloaded core is available (datasets are lazy), throw a clear
+    // error — the caller must call preloadAll() or trigger a dataset load first,
+    // or use EurocontrolDdrResolverJS / NasrResolverJS which load eagerly.
+    if (!this._core) {
+      throw new Error(
+        '[traffic.js] FaaArcgisResolverJS.enrichRoute requires data to be preloaded. ' +
+          'Call await resolver.preloadAll() before using enrichRoute(), ' +
+          'or construct the resolver with { eager: true }.'
+      );
+    }
+    throw new Error(
+      '[traffic.js] enrichRoute is unavailable in the loaded thrust-wasm build. ' +
+        'Upgrade thrust-wasm to a version that exposes FaaArcgisResolver.enrichRoute.'
+    );
+  }
+
+  /**
+   * Resolve a field 15 route and return a GeoJSON FeatureCollection of
+   * LineString features (one per segment).
+   *
+   * Requires thrust-wasm ≥ 0.3 and preloaded datasets (see {@link enrichRoute}).
+   */
+  enrichRouteAsGeoJSON(route: string): {
+    type: 'FeatureCollection';
+    features: RouteSegmentFeature[];
+  } {
+    const segments = this.enrichRoute(route);
+    const features: RouteSegmentFeature[] = segments.map((seg) => ({
+      type: 'Feature' as const,
+      geometry: {
+        type: 'LineString' as const,
+        coordinates: [
+          [seg.start.longitude, seg.start.latitude],
+          [seg.end.longitude, seg.end.latitude],
+        ],
+      },
+      properties: {
+        name: seg.name ?? null,
+        start_name: seg.start.name ?? null,
+        end_name: seg.end.name ?? null,
+        start_kind: seg.start.kind ?? null,
+        end_kind: seg.end.kind ?? null,
+      },
+    }));
+    return { type: 'FeatureCollection', features };
   }
 
   private _datasetsFor(entity: EntityName | null): string[] {

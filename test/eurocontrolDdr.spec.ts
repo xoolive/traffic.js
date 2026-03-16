@@ -1,10 +1,9 @@
 import { describe, it } from 'mocha';
 import { expect } from 'chai';
 
-import {
-  createEurocontrolDdrResolver,
-  type EurocontrolDdrCore,
-} from '../src/index.js';
+import { data, type EurocontrolDdrCore } from '../src/index.js';
+
+const { createEurocontrolDdrResolver } = data.eurocontrol;
 
 function makeCore(archive: Uint8Array): EurocontrolDdrCore {
   const tag = String.fromCharCode(...archive.slice(0, 3));

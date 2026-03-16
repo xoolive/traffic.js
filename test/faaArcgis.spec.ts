@@ -1,11 +1,10 @@
 import { describe, it } from 'mocha';
 import { expect } from 'chai';
 
-import {
-  FAA_ARCGIS_DATASETS,
-  createFaaArcgisResolver,
-  type FaaArcgisCore,
-} from '../src/index.js';
+import { data, type FaaArcgisCore, type RouteSegment } from '../src/index.js';
+
+const { FAA_ARCGIS_DATASETS, createFaaArcgisResolver } = data.faa;
+const { Resolver } = data;
 
 type FeatureCollection = {
   features: Array<{ properties?: Record<string, unknown>; geometry?: unknown }>;
@@ -194,5 +193,88 @@ describe('FAA ArcGIS resolver adapter', () => {
       'MOL'
     );
     expect(j48.properties.route_class).to.equal('AR');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FaaArcgisResolverJS — enrichRoute / enrichRouteAsGeoJSON
+// ---------------------------------------------------------------------------
+
+describe('FAA ArcGIS resolver — enrichRoute', () => {
+  /** Build a core that also exposes enrichRoute (simulating thrust-wasm ≥ 0.3) */
+  function makeCoreWithEnrichRoute(segs: RouteSegment[]): FaaArcgisCore {
+    return {
+      airports: () => [],
+      fixes: () => [],
+      navaids: () => [],
+      airways: () => [],
+      airspaces: () => [],
+      resolve_airport: () => null,
+      resolve_fix: () => null,
+      resolve_navaid: () => null,
+      resolve_airway: () => null,
+      resolve_airspace: () => null,
+      enrichRoute: (_route: string) => [...segs],
+    };
+  }
+
+  const SEG: RouteSegment = {
+    start: { name: 'HAPIE', latitude: 40.63, longitude: -73.78, kind: 'fix' },
+    end: { name: 'WHALE', latitude: 42.0, longitude: -70.0, kind: 'fix' },
+    name: 'J49',
+  };
+
+  it('enrichRoute delegates to core.enrichRoute when core has the method', async () => {
+    const resolver = await createFaaArcgisResolver({
+      core: makeCoreWithEnrichRoute([SEG]),
+    });
+    const segs = resolver.enrichRoute('HAPIE J49 WHALE');
+    expect(segs).to.have.length(1);
+    expect(segs[0].name).to.equal('J49');
+    expect(segs[0].start.name).to.equal('HAPIE');
+  });
+
+  it('enrichRoute throws when core lacks the method (older WASM build)', async () => {
+    const resolver = await createFaaArcgisResolver({
+      core: makeCore([]), // makeCore does not define enrichRoute
+    });
+    expect(() => resolver.enrichRoute('HAPIE J49 WHALE')).to.throw(
+      /enrichRoute is unavailable|requires thrust-wasm/i
+    );
+  });
+
+  it('enrichRoute throws when datasets are not yet loaded (no core)', async () => {
+    // Use a minimal fetchImpl so the resolver is created without data loaded
+    const neverFetch = async (): Promise<Response> =>
+      new Response('{}', { status: 200 });
+    const resolver = await createFaaArcgisResolver({
+      coreFactory: makeCore,
+      fetchImpl: neverFetch,
+    });
+    // _core is null at this point (no datasets loaded yet)
+    expect(() => resolver.enrichRoute('any route')).to.throw(/preload/i);
+  });
+
+  it('FaaArcgisResolverJS with enrichRoute-capable core passes Resolver.withArcgis', async () => {
+    // The key check: with enrichRoute present, withArcgis no longer throws
+    const resolver = await createFaaArcgisResolver({
+      core: makeCoreWithEnrichRoute([SEG]),
+    });
+    expect(() => new Resolver().withArcgis(resolver)).not.to.throw();
+  });
+
+  it('enrichRouteAsGeoJSON returns a FeatureCollection from ArcGIS segments', async () => {
+    const resolver = await createFaaArcgisResolver({
+      core: makeCoreWithEnrichRoute([SEG]),
+    });
+    const fc = resolver.enrichRouteAsGeoJSON('HAPIE J49 WHALE');
+    expect(fc.type).to.equal('FeatureCollection');
+    expect(fc.features).to.have.length(1);
+    const f = fc.features[0];
+    expect(f.geometry.type).to.equal('LineString');
+    expect(f.properties.name).to.equal('J49');
+    // GeoJSON: [longitude, latitude]
+    expect(f.geometry.coordinates[0][0]).to.be.closeTo(-73.78, 0.01);
+    expect(f.geometry.coordinates[0][1]).to.be.closeTo(40.63, 0.01);
   });
 });

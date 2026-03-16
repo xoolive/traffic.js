@@ -13,15 +13,18 @@ import { describe } from 'mocha';
 import { expect, use } from 'chai';
 import chai_datetime from 'chai-datetime';
 import type { Op } from '../src/core/types.js';
+import type { Flight as FlightType } from '../src/core/flight.js';
 
 use(chai_datetime);
 
-import { Flight } from '../src/index.js';
+import { core } from '../src/index.js';
+
+const { Flight } = core;
 
 const data = readFileSync(
   join(__dirname, '..', 'data', 'belevingsvlucht.json.gz')
 );
-const flight = Flight.fromArrayBuffer(data.buffer) as Flight;
+const flight = Flight.fromArrayBuffer(data.buffer) as FlightType;
 
 describe('Flight properties', () => {
   it('callsign', () => expect(flight.callsign).to.be.equal('TRA051'));
@@ -57,7 +60,7 @@ describe('Flight functions', () => {
 
 describe('Flight rollup', () => {
   const stats = flight.rollup({
-    start: (f: Flight) => f.start,
+    start: (f: FlightType) => f.start,
     callsign: 'callsign',
     icao24: 'icao24',
     alt_max: op.max('altitude') as unknown as Op,

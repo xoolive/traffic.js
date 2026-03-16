@@ -19,16 +19,16 @@ import { describe, it } from 'mocha';
 import { expect } from 'chai';
 
 import {
-  buildAirspaceGeometry,
-  validateGeometryNesting,
+  core,
+  data,
   type RawLayer,
   type GeoJsonGeometry,
 } from '../src/index.js';
 
-import {
-  createEurocontrolDdrResolver,
-  type EurocontrolDdrCore,
-} from '../src/index.js';
+import { type EurocontrolDdrCore } from '../src/index.js';
+
+const { buildAirspaceGeometry, validateGeometryNesting } = core;
+const { createEurocontrolDdrResolver } = data.eurocontrol;
 
 // ---------------------------------------------------------------------------
 // Helpers
