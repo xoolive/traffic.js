@@ -6,6 +6,20 @@ import type {
 } from './field15.js';
 import { parseField15 } from './field15.js';
 
+export type ResolveQuery = {
+  airport?: string;
+  navaid?: string;
+  fix?: string;
+  airway?: string;
+  airspace?: string;
+  near?: unknown;
+};
+
+export interface LookupSource {
+  resolve?: (query: ResolveQuery) => unknown | Promise<unknown>;
+  enrichRoute?: (route: string) => RouteSegment[];
+}
+
 // ---------------------------------------------------------------------------
 // Resolver
 // ---------------------------------------------------------------------------
@@ -45,7 +59,7 @@ import { parseField15 } from './field15.js';
  * ```
  */
 export class Resolver {
-  private _sources: Array<{ name: string; enricher: RouteEnricher }> = [];
+  private _sources: Array<{ name: string; source: LookupSource }> = [];
 
   // -------------------------------------------------------------------------
   // Builder methods — each returns `this` for chaining
@@ -93,25 +107,43 @@ export class Resolver {
   }
 
   /**
-   * Attach any custom enricher as a navigation source.
+   * Attach any custom source as a navigation source.
    *
-   * The enricher must implement `enrichRoute(route: string): RouteSegment[]`.
+   * A source may implement either of:
+   * - `resolve(query)` for lookup use-cases (airport/navaid/fix/airway)
+   * - `enrichRoute(route)` for field-15 route expansion
+   *
    * `EurocontrolDdrResolverJS`, `NasrResolverJS`, and `FaaArcgisResolverJS`
-   * (thrust-wasm ≥ 0.3, after `preloadAll()`) all satisfy this interface.
+   * (thrust-wasm ≥ 0.3, after `preloadAll()`) implement `enrichRoute`.
    *
    * @param name - A label for this source (used for debugging only).
-   * @param enricher - Any object with an `enrichRoute` method.
-   * @throws If `enricher.enrichRoute` is not a function.
+   * @param source - Any object with at least `resolve()` or `enrichRoute()`.
+   * @throws If neither `source.resolve` nor `source.enrichRoute` is a function.
+   *
+   * @example
+   * ```js
+   * // Lookup-only source
+   * resolver.withSource('airports', {
+   *   resolve: (query) => (query.airport === 'LFBO' ? feature : null),
+   * })
+   *
+   * // Route-enrichment source
+   * resolver.withSource('ddr', {
+   *   enrichRoute: (route) => ddr.enrichRoute(route),
+   * })
+   * ```
    */
-  withSource(name: string, enricher: RouteEnricher): this {
-    if (typeof enricher?.enrichRoute !== 'function') {
+  withSource(name: string, source: LookupSource): this {
+    const hasResolve = typeof source?.resolve === 'function';
+    const hasEnrichRoute = typeof source?.enrichRoute === 'function';
+    if (!hasResolve && !hasEnrichRoute) {
       throw new Error(
-        `Source "${name}" does not implement enrichRoute(). ` +
+        `Source "${name}" must implement resolve() or enrichRoute(). ` +
           `FaaArcgisResolverJS requires thrust-wasm ≥ 0.3 and preloaded datasets — ` +
           `call await arcgis.preloadAll() before passing it to withArcgis().`
       );
     }
-    this._sources.push({ name, enricher });
+    this._sources.push({ name, source });
     return this;
   }
 
@@ -165,15 +197,28 @@ export class Resolver {
           'Call .withDdr(), .withNasr(), or .withSource() before enrichRoute().'
       );
     }
-    if (this._sources.length === 1) {
-      return this._sources[0].enricher.enrichRoute(route);
+
+    const enrichSources = this._sources.filter(
+      (entry): entry is { name: string; source: RouteEnricher } =>
+        typeof entry.source.enrichRoute === 'function'
+    );
+
+    if (enrichSources.length === 0) {
+      throw new Error(
+        'Resolver has no enrich-capable sources. ' +
+          'Attach at least one source implementing enrichRoute(route).'
+      );
+    }
+
+    if (enrichSources.length === 1) {
+      return enrichSources[0].source.enrichRoute(route);
     }
 
     // Collect all segments from all sources tagged with source priority.
     const allSegments: Array<RouteSegment & { _pri: number }> = [];
-    for (let i = 0; i < this._sources.length; i++) {
+    for (let i = 0; i < enrichSources.length; i++) {
       try {
-        for (const seg of this._sources[i].enricher.enrichRoute(route)) {
+        for (const seg of enrichSources[i].source.enrichRoute(route)) {
           allSegments.push({ ...seg, _pri: i });
         }
       } catch {

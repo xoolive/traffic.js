@@ -36,6 +36,7 @@ export type {
   ParseField15Options,
   ResolvedRoutePoint,
 } from './data/field15.js';
+export type { ResolveQuery, LookupSource } from './data/resolver.js';
 export type {
   CreateEarthNavResolverOptions,
   CreateEarthFixResolverOptions,

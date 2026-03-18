@@ -4,7 +4,7 @@
  * Tests for the `Resolver` multi-source builder class.
  *
  * Coverage:
- * 1. Builder validation — withSource() rejects enrichers without enrichRoute()
+ * 1. Builder validation — withSource() accepts lookup/enrich sources
  * 2. Single-source routing — delegates directly to that source
  * 3. Multi-source priority — first source wins for shared segments
  * 4. Multi-source gap-filling — second source resolves what first can't
@@ -149,10 +149,21 @@ const SEG_US_ONLY: RouteSegment = {
 // ---------------------------------------------------------------------------
 
 describe('Resolver — builder validation', () => {
-  it('withSource() throws immediately if enricher lacks enrichRoute()', () => {
-    expect(() => new Resolver().withSource('bad', {} as never)).to.throw(
-      /does not implement enrichRoute/
-    );
+  it('withSource() accepts a lookup-only source', () => {
+    expect(() =>
+      new Resolver().withSource('lookup', {
+        resolve: (_query: unknown) => null,
+      })
+    ).not.to.throw();
+  });
+
+  it('withSource() accepts a source implementing both resolve and enrichRoute', () => {
+    expect(() =>
+      new Resolver().withSource('both', {
+        resolve: (_query: unknown) => null,
+        enrichRoute: (_route: string) => [SEG_EU_A],
+      })
+    ).not.to.throw();
   });
 
   it('withSource() error message names the bad source', () => {
@@ -164,6 +175,12 @@ describe('Resolver — builder validation', () => {
     }
   });
 
+  it('withSource() rejects sources implementing neither resolve nor enrichRoute', () => {
+    expect(() => new Resolver().withSource('bad', {} as never)).to.throw(
+      /must implement resolve\(\) or enrichRoute\(\)/
+    );
+  });
+
   it('withSource() error message mentions FaaArcgisResolverJS', () => {
     try {
       new Resolver().withSource('arcgis', {} as never);
@@ -173,21 +190,21 @@ describe('Resolver — builder validation', () => {
     }
   });
 
-  it('withDdr() delegates to withSource() and also validates', () => {
+  it('withDdr() delegates to withSource() and validates input shape', () => {
     expect(() => new Resolver().withDdr({} as never)).to.throw(
-      /does not implement enrichRoute/
+      /must implement resolve\(\) or enrichRoute\(\)/
     );
   });
 
-  it('withNasr() delegates to withSource() and also validates', () => {
+  it('withNasr() delegates to withSource() and validates input shape', () => {
     expect(() => new Resolver().withNasr({} as never)).to.throw(
-      /does not implement enrichRoute/
+      /must implement resolve\(\) or enrichRoute\(\)/
     );
   });
 
-  it('withArcgis() delegates to withSource() and also validates', () => {
+  it('withArcgis() delegates to withSource() and validates input shape', () => {
     expect(() => new Resolver().withArcgis({} as never)).to.throw(
-      /does not implement enrichRoute/
+      /must implement resolve\(\) or enrichRoute\(\)/
     );
   });
 
@@ -201,6 +218,15 @@ describe('Resolver — builder validation', () => {
     expect(() =>
       new Resolver().withSource('ok', makeEnricher([SEG_EU_A]))
     ).not.to.throw();
+  });
+
+  it('enrichRoute() throws a descriptive error when only lookup sources are attached', () => {
+    const r = new Resolver().withSource('lookup', {
+      resolve: (_query: unknown) => null,
+    });
+    expect(() => r.enrichRoute('BOKNO UN858 VANAD')).to.throw(
+      /no enrich-capable sources/
+    );
   });
 });
 
