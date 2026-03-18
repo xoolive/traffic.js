@@ -37,6 +37,12 @@ export type {
   ResolvedRoutePoint,
 } from './data/field15.js';
 export type {
+  CreateEarthNavResolverOptions,
+  CreateEarthFixResolverOptions,
+  CreateEarthAwyResolverOptions,
+  CreateXplaneResolverOptions,
+} from './data/xplane.js';
+export type {
   RawLayer,
   MergedLayer,
   AirspaceGeometryResult,

@@ -32,6 +32,12 @@ import {
   FaaArcgisResolverJS,
 } from './data/faaArcgis.js';
 import {
+  createEarthNavResolver,
+  createEarthFixResolver,
+  createEarthAwyResolver,
+  createXplaneResolver,
+} from './data/xplane.js';
+import {
   buildAirspaceGeometry,
   validateGeometryNesting,
 } from './core/airspace.js';
@@ -106,6 +112,18 @@ export const data = {
     fetchEurocontrolDdrArchive,
     /** Low-level Eurocontrol DDR resolver class. */
     EurocontrolDdrResolverJS,
+  },
+
+  /** X-Plane navdata sources. */
+  xplane: {
+    /** Create a resolver that combines earth_nav/fix/awy sources. */
+    createXplaneResolver,
+    /** Create a resolver for earth_nav.dat navaids. */
+    createEarthNavResolver,
+    /** Create a resolver for earth_fix.dat fixes. */
+    createEarthFixResolver,
+    /** Create a resolver for earth_awy.dat airways. */
+    createEarthAwyResolver,
   },
 };
 

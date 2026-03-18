@@ -10,10 +10,11 @@
   "types": "dist/src/index.d.ts",
   "scripts": {
     "build": "rollup -c",
+    "clean": "rimraf build dist",
+    "rebuild": "npm run clean && npm run build",
     "lint": "prettier -c ./src ./test",
     "format": "prettier -w ./src ./test",
     "postbuild": "tsc && cp data/scaler.onnx dist/scaler.onnx && cp data/classifier.onnx dist/classifier.onnx && cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.mjs dist/ && cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.wasm dist/",
-    "prebuild": "rimraf build dist",
     "prepare": "prek install",
     "prepublishOnly": "npm run test & npm run lint & npm run build",
     "serve": "rollup -c --environment SERVE",
