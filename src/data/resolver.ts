@@ -5,6 +5,7 @@ import type {
   Field15Element,
 } from './field15.js';
 import { parseField15 } from './field15.js';
+import { resolveAirportQuery } from './airportLookup.js';
 
 export type ResolveQuery = {
   airport?: string;
@@ -19,6 +20,10 @@ export interface LookupSource {
   resolve?: (query: ResolveQuery) => unknown | Promise<unknown>;
   enrichRoute?: (route: string) => RouteSegment[];
 }
+
+type AirportCollection = {
+  data?: () => unknown[] | Promise<unknown[]>;
+};
 
 // ---------------------------------------------------------------------------
 // Resolver
@@ -169,6 +174,54 @@ export class Resolver {
   }
 
   /**
+   * Resolve a lookup query against attached sources.
+   *
+   * Resolution order follows source attachment order.
+   * For airport queries, if `source.resolve()` returns no hit, a fallback
+   * fuzzy matcher is applied on `source.airports.data()` when available.
+   */
+  async resolve(query: ResolveQuery): Promise<unknown | null> {
+    const hasQuery =
+      query.airport ||
+      query.navaid ||
+      query.fix ||
+      query.airway ||
+      query.airspace;
+    if (!hasQuery) {
+      throw new Error(
+        'resolve: pass one of airport/navaid/fix/airway/airspace'
+      );
+    }
+
+    for (const entry of this._sources) {
+      const source = entry.source;
+      if (typeof source.resolve === 'function') {
+        try {
+          const hit = await source.resolve(query);
+          if (hit) return hit;
+        } catch {
+          // Source failed — skip it silently.
+        }
+      }
+
+      if (query.airport) {
+        const airports = await this._airportRowsFrom(source);
+        if (airports.length > 0) {
+          const hit = resolveAirportQuery(airports, query.airport);
+          if (hit) return hit;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /** Alias for resolve(), for notebook ergonomics. */
+  async get(query: ResolveQuery): Promise<unknown | null> {
+    return this.resolve(query);
+  }
+
+  /**
    * Resolve a raw ICAO field 15 route string into geographic segments.
    *
    * Each attached source independently resolves the full route. Results are
@@ -313,5 +366,18 @@ export class Resolver {
       },
     }));
     return { type: 'FeatureCollection', features };
+  }
+
+  private async _airportRowsFrom(source: LookupSource): Promise<unknown[]> {
+    const collection = (source as { airports?: AirportCollection }).airports;
+    if (!collection || typeof collection.data !== 'function') {
+      return [];
+    }
+    try {
+      const rows = await collection.data();
+      return Array.isArray(rows) ? rows : [];
+    } catch {
+      return [];
+    }
   }
 }

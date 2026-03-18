@@ -458,3 +458,110 @@ describe('Resolver — enrichRouteAsGeoJSON', () => {
     expect(fc.features).to.have.length(3);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 8. Lookup API and airport normalization
+// ---------------------------------------------------------------------------
+
+describe('Resolver — lookup API', () => {
+  const AIRPORTS = [
+    {
+      type: 'Feature',
+      properties: {
+        icao: 'LFBO',
+        iata: 'TLS',
+        name: 'Toulouse Blagnac',
+      },
+    },
+    {
+      type: 'Feature',
+      properties: {
+        icao: 'LFBD',
+        iata: 'BOD',
+        name: 'Bordeaux Merignac',
+      },
+    },
+    {
+      type: 'Feature',
+      properties: {
+        icao: 'ZZZ1',
+        iata: 'ZZ1',
+        name: 'Toulouse Test North',
+      },
+    },
+    {
+      type: 'Feature',
+      properties: {
+        icao: 'ZZZ2',
+        iata: 'ZZ2',
+        name: 'Toulouse Test South',
+      },
+    },
+  ];
+
+  const lookupOnly = {
+    resolve: async (_query: unknown) => null,
+    airports: {
+      data: async () => AIRPORTS,
+    },
+  };
+
+  it('resolve({airport}) matches ICAO exactly first', async () => {
+    const r = new Resolver().withSource('airports', lookupOnly);
+    const hit = await r.resolve({ airport: 'LFBO' });
+    expect(
+      (hit as { properties?: { icao?: string } })?.properties?.icao
+    ).to.equal('LFBO');
+  });
+
+  it('resolve({airport}) matches IATA exactly when ICAO not found', async () => {
+    const r = new Resolver().withSource('airports', lookupOnly);
+    const hit = await r.resolve({ airport: 'TLS' });
+    expect(
+      (hit as { properties?: { icao?: string } })?.properties?.icao
+    ).to.equal('LFBO');
+  });
+
+  it('resolve({airport}) matches by airport name (case-insensitive)', async () => {
+    const r = new Resolver().withSource('airports', lookupOnly);
+    const hit = await r.resolve({ airport: 'toulouse blagnac' });
+    expect(
+      (hit as { properties?: { icao?: string } })?.properties?.icao
+    ).to.equal('LFBO');
+  });
+
+  it('resolve({airport}) supports prefix matching as fallback', async () => {
+    const r = new Resolver().withSource('airports', lookupOnly);
+    const hit = await r.resolve({ airport: 'Toulouse Test' });
+    expect(
+      (hit as { properties?: { icao?: string } })?.properties?.icao
+    ).to.equal('ZZZ1');
+  });
+
+  it('get(query) is an alias of resolve(query)', async () => {
+    const r = new Resolver().withSource('airports', lookupOnly);
+    const hit = await r.get({ airport: 'LFBD' });
+    expect(
+      (hit as { properties?: { iata?: string } })?.properties?.iata
+    ).to.equal('BOD');
+  });
+
+  it('resolve(query) uses source.resolve() before fallback list matching', async () => {
+    const forced = {
+      type: 'Feature',
+      properties: { icao: 'FORCED', iata: 'FRC', name: 'Forced' },
+    };
+    const source = {
+      resolve: async (query: { airport?: string }) =>
+        query.airport === 'TLS' ? forced : null,
+      airports: {
+        data: async () => AIRPORTS,
+      },
+    };
+    const r = new Resolver().withSource('airports', source);
+    const hit = await r.resolve({ airport: 'TLS' });
+    expect(
+      (hit as { properties?: { icao?: string } })?.properties?.icao
+    ).to.equal('FORCED');
+  });
+});

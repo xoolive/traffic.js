@@ -7,3 +7,5 @@ export * from './field15.js';
 export * from './resolver.js';
 export * from './samples.js';
 export * from './xplane.js';
+export * from './airportLookup.js';
+export * from './fr24.js';

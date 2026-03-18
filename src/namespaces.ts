@@ -38,6 +38,11 @@ import {
   createXplaneResolver,
 } from './data/xplane.js';
 import {
+  matchAirportQuery,
+  resolveAirportQuery,
+} from './data/airportLookup.js';
+import { createFr24AirportResolver, FR24_AIRPORTS_URL } from './data/fr24.js';
+import {
   buildAirspaceGeometry,
   validateGeometryNesting,
 } from './core/airspace.js';
@@ -124,6 +129,22 @@ export const data = {
     createEarthFixResolver,
     /** Create a resolver for earth_awy.dat airways. */
     createEarthAwyResolver,
+  },
+
+  /** Airport lookup helpers (ICAO/IATA/name matching). */
+  airportLookup: {
+    /** Return best airport row + match metadata. */
+    matchAirportQuery,
+    /** Return only the best matching airport row. */
+    resolveAirportQuery,
+  },
+
+  /** FlightRadar24 airport source helper. */
+  fr24: {
+    /** CORS-restricted default endpoint. Prefer passing json/rows in browsers. */
+    FR24_AIRPORTS_URL,
+    /** Create a FR24 airport resolver (supports ICAO/IATA/name lookup). */
+    createFr24AirportResolver,
   },
 };
 

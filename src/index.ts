@@ -38,6 +38,14 @@ export type {
 } from './data/field15.js';
 export type { ResolveQuery, LookupSource } from './data/resolver.js';
 export type {
+  AirportQueryMatch,
+  AirportQueryMatchKind,
+} from './data/airportLookup.js';
+export type {
+  CreateFr24AirportResolverOptions,
+  Fr24AirportRow,
+} from './data/fr24.js';
+export type {
   CreateEarthNavResolverOptions,
   CreateEarthFixResolverOptions,
   CreateEarthAwyResolverOptions,
