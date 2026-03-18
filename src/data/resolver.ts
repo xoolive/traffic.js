@@ -21,8 +21,31 @@ export interface LookupSource {
   enrichRoute?: (route: string) => RouteSegment[];
 }
 
+export interface CollectionQueryOptions {
+  /** Maximum number of rows to return. */
+  limit?: number;
+  /** Text filter applied against properties/row values (case-insensitive). */
+  query?: string;
+  /** Restrict to one or more attached source names. */
+  source?: string | string[];
+}
+
 type AirportCollection = {
   data?: () => unknown[] | Promise<unknown[]>;
+};
+
+type NamedCollection = {
+  data?: () => unknown[] | Promise<unknown[]>;
+  search?: (text: string) => unknown[] | Promise<unknown[]>;
+};
+
+type CollectionEntity = 'airports' | 'navaids' | 'airways' | 'airspaces';
+
+type CollectionBearingSource = LookupSource & {
+  airports?: NamedCollection;
+  navaids?: NamedCollection;
+  airways?: NamedCollection;
+  airspaces?: NamedCollection;
 };
 
 // ---------------------------------------------------------------------------
@@ -65,6 +88,23 @@ type AirportCollection = {
  */
 export class Resolver {
   private _sources: Array<{ name: string; source: LookupSource }> = [];
+
+  /**
+   * Aggregated collection accessors across attached sources.
+   *
+   * Each accessor concatenates rows from all compatible sources in source
+   * priority order and annotates items with source metadata.
+   */
+  readonly collections = {
+    airports: async (options?: CollectionQueryOptions) =>
+      this._collectFromSources('airports', options),
+    navaids: async (options?: CollectionQueryOptions) =>
+      this._collectFromSources('navaids', options),
+    airways: async (options?: CollectionQueryOptions) =>
+      this._collectFromSources('airways', options),
+    airspaces: async (options?: CollectionQueryOptions) =>
+      this._collectFromSources('airspaces', options),
+  };
 
   // -------------------------------------------------------------------------
   // Builder methods — each returns `this` for chaining
@@ -379,5 +419,126 @@ export class Resolver {
     } catch {
       return [];
     }
+  }
+
+  private async _collectFromSources(
+    entity: CollectionEntity,
+    options?: CollectionQueryOptions
+  ): Promise<unknown[]> {
+    const limit =
+      typeof options?.limit === 'number' && Number.isFinite(options.limit)
+        ? Math.max(0, Math.floor(options.limit))
+        : Number.POSITIVE_INFINITY;
+    const query = String(options?.query ?? '').trim();
+    const sourceFilter = this._normalizeSourceFilter(options?.source);
+
+    const out: unknown[] = [];
+
+    for (const entry of this._sources) {
+      if (sourceFilter && !sourceFilter.has(entry.name)) {
+        continue;
+      }
+
+      const source = entry.source as CollectionBearingSource;
+      const collection = source[entity];
+      if (!collection || typeof collection.data !== 'function') {
+        continue;
+      }
+
+      try {
+        const rows = await this._readCollectionRows(collection, query);
+        if (!Array.isArray(rows)) {
+          continue;
+        }
+        for (const row of rows) {
+          if (query && !this._matchesCollectionQuery(row, query)) {
+            continue;
+          }
+          out.push(this._annotateCollectionRow(row, entry.name));
+          if (out.length >= limit) {
+            return out;
+          }
+        }
+      } catch {
+        // Source failed — skip it silently.
+      }
+    }
+
+    return out;
+  }
+
+  private _annotateCollectionRow(row: unknown, sourceName: string): unknown {
+    if (!row || typeof row !== 'object') {
+      return row;
+    }
+
+    const obj = row as Record<string, unknown>;
+    const properties = obj.properties;
+
+    if (properties && typeof properties === 'object') {
+      const props = properties as Record<string, unknown>;
+      return {
+        ...obj,
+        properties: {
+          ...props,
+          source: props.source ?? sourceName,
+          resolver_source: sourceName,
+        },
+      };
+    }
+
+    return {
+      ...obj,
+      source: obj.source ?? sourceName,
+      resolver_source: sourceName,
+    };
+  }
+
+  private _normalizeSourceFilter(
+    source: CollectionQueryOptions['source']
+  ): Set<string> | null {
+    if (source == null) return null;
+    const values = Array.isArray(source) ? source : [source];
+    const cleaned = values
+      .map((value) => String(value ?? '').trim())
+      .filter((value) => value.length > 0);
+    return cleaned.length > 0 ? new Set(cleaned) : null;
+  }
+
+  private async _readCollectionRows(
+    collection: NamedCollection,
+    query: string
+  ): Promise<unknown[]> {
+    if (query && typeof collection.search === 'function') {
+      const rows = await collection.search(query);
+      if (Array.isArray(rows)) {
+        return rows;
+      }
+    }
+    if (typeof collection.data !== 'function') {
+      return [];
+    }
+    const rows = await collection.data();
+    return Array.isArray(rows) ? rows : [];
+  }
+
+  private _matchesCollectionQuery(row: unknown, query: string): boolean {
+    const q = query.toUpperCase();
+    if (!q) return true;
+    const values = Object.values(
+      row &&
+        typeof row === 'object' &&
+        'properties' in (row as Record<string, unknown>)
+        ? (((row as Record<string, unknown>).properties ?? {}) as Record<
+            string,
+            unknown
+          >)
+        : ((row ?? {}) as Record<string, unknown>)
+    );
+    return values.some((value) =>
+      String(value ?? '')
+        .toUpperCase()
+        .includes(q)
+    );
   }
 }

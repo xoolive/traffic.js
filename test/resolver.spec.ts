@@ -67,6 +67,52 @@ function makeThrowingEnricher(): {
   };
 }
 
+function makeCollectionSource(collections: {
+  airports?: unknown[];
+  navaids?: unknown[];
+  airways?: unknown[];
+  airspaces?: unknown[];
+}) {
+  const makeCollection = (rows: unknown[]) => ({
+    data: async () => rows,
+    search: async (text: string) => {
+      const q = String(text ?? '').toUpperCase();
+      return rows.filter((row) =>
+        Object.values(
+          row &&
+            typeof row === 'object' &&
+            'properties' in (row as Record<string, unknown>)
+            ? (((row as Record<string, unknown>).properties ?? {}) as Record<
+                string,
+                unknown
+              >)
+            : ((row ?? {}) as Record<string, unknown>)
+        ).some((value) =>
+          String(value ?? '')
+            .toUpperCase()
+            .includes(q)
+        )
+      );
+    },
+  });
+
+  return {
+    resolve: (_query: unknown) => null,
+    ...(collections.airports
+      ? { airports: makeCollection(collections.airports as unknown[]) }
+      : {}),
+    ...(collections.navaids
+      ? { navaids: makeCollection(collections.navaids as unknown[]) }
+      : {}),
+    ...(collections.airways
+      ? { airways: makeCollection(collections.airways as unknown[]) }
+      : {}),
+    ...(collections.airspaces
+      ? { airspaces: makeCollection(collections.airspaces as unknown[]) }
+      : {}),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Real-data fixture segments
 // Coordinates are verbatim from DDR AIRAC 2111 and NASR 2026-03-19 archives.
@@ -563,5 +609,133 @@ describe('Resolver — lookup API', () => {
     expect(
       (hit as { properties?: { icao?: string } })?.properties?.icao
     ).to.equal('FORCED');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 9. Aggregated collections API
+// ---------------------------------------------------------------------------
+
+describe('Resolver — collections API', () => {
+  it('aggregates airports in source order and annotates source metadata', async () => {
+    const s1 = makeCollectionSource({
+      airports: [
+        {
+          type: 'Feature',
+          properties: { icao: 'LFBO', name: 'Toulouse Blagnac' },
+        },
+      ],
+    });
+
+    const s2 = makeCollectionSource({
+      airports: [
+        {
+          type: 'Feature',
+          properties: { icao: 'LFBD', name: 'Bordeaux Merignac' },
+        },
+      ],
+    });
+
+    const r = new Resolver().withSource('s1', s1).withSource('s2', s2);
+    const rows = await r.collections.airports();
+
+    expect(rows).to.have.length(2);
+    const first = rows[0] as {
+      properties?: { icao?: string; source?: string };
+    };
+    const second = rows[1] as {
+      properties?: { icao?: string; source?: string };
+    };
+
+    expect(first.properties?.icao).to.equal('LFBO');
+    expect(first.properties?.source).to.equal('s1');
+    expect(second.properties?.icao).to.equal('LFBD');
+    expect(second.properties?.source).to.equal('s2');
+  });
+
+  it('preserves existing source property and adds resolver_source', async () => {
+    const s = makeCollectionSource({
+      airways: [
+        {
+          type: 'Feature',
+          properties: { name: 'UN858', source: 'ddr' },
+        },
+      ],
+    });
+
+    const r = new Resolver().withSource('custom', s);
+    const rows = await r.collections.airways();
+    const row = rows[0] as {
+      properties?: { source?: string; resolver_source?: string; name?: string };
+    };
+
+    expect(row.properties?.name).to.equal('UN858');
+    expect(row.properties?.source).to.equal('ddr');
+    expect(row.properties?.resolver_source).to.equal('custom');
+  });
+
+  it('returns empty arrays for entities not exposed by attached sources', async () => {
+    const r = new Resolver().withSource(
+      'lookup',
+      makeCollectionSource({ airports: [] })
+    );
+
+    expect(await r.collections.navaids()).to.deep.equal([]);
+    expect(await r.collections.airways()).to.deep.equal([]);
+    expect(await r.collections.airspaces()).to.deep.equal([]);
+  });
+
+  it('supports source filter to avoid aggregating all sources', async () => {
+    const s1 = makeCollectionSource({
+      airports: [{ type: 'Feature', properties: { icao: 'LFBO' } }],
+    });
+    const s2 = makeCollectionSource({
+      airports: [{ type: 'Feature', properties: { icao: 'LFBD' } }],
+    });
+
+    const r = new Resolver().withSource('fr24', s1).withSource('arcgis', s2);
+    const rows = await r.collections.airports({ source: 'fr24' });
+
+    expect(rows).to.have.length(1);
+    expect(
+      (rows[0] as { properties?: { icao?: string } }).properties?.icao
+    ).to.equal('LFBO');
+  });
+
+  it('supports query filtering on collection properties', async () => {
+    const s = makeCollectionSource({
+      airports: [
+        {
+          type: 'Feature',
+          properties: { icao: 'LFBO', name: 'Toulouse Blagnac' },
+        },
+        {
+          type: 'Feature',
+          properties: { icao: 'LFBD', name: 'Bordeaux Merignac' },
+        },
+      ],
+    });
+
+    const r = new Resolver().withSource('s', s);
+    const rows = await r.collections.airports({ query: 'toulouse' });
+
+    expect(rows).to.have.length(1);
+    expect(
+      (rows[0] as { properties?: { icao?: string } }).properties?.icao
+    ).to.equal('LFBO');
+  });
+
+  it('supports limit to cap output size', async () => {
+    const s = makeCollectionSource({
+      airports: [
+        { type: 'Feature', properties: { icao: 'LFBO' } },
+        { type: 'Feature', properties: { icao: 'LFBD' } },
+        { type: 'Feature', properties: { icao: 'LFMN' } },
+      ],
+    });
+
+    const r = new Resolver().withSource('s', s);
+    const rows = await r.collections.airports({ limit: 2 });
+    expect(rows).to.have.length(2);
   });
 });
