@@ -12,6 +12,8 @@ export type ResolveQuery = {
   navaid?: string;
   fix?: string;
   airway?: string;
+  SID?: string;
+  STAR?: string;
   airspace?: string;
   near?: unknown;
   /** Restrict lookup to one source or redefine source priority order. */
@@ -35,6 +37,8 @@ export interface CollectionQueryOptions {
   query?: string;
   /** Restrict to one or more attached source names. */
   source?: string | string[];
+  /** Exact match on row type (e.g. STAR, SID, airway). */
+  type?: string;
 }
 
 type AirportCollection = {
@@ -245,10 +249,12 @@ export class Resolver {
       query.navaid ||
       query.fix ||
       query.airway ||
+      query.SID ||
+      query.STAR ||
       query.airspace;
     if (!hasQuery) {
       throw new Error(
-        'resolve: pass one of airport/navaid/fix/airway/airspace'
+        'resolve: pass one of airport/navaid/fix/airway/SID/STAR/airspace'
       );
     }
 
@@ -270,6 +276,15 @@ export class Resolver {
 
     for (const entry of sourceEntries) {
       const source = entry.source;
+
+      if (query.SID || query.STAR) {
+        const hit = await this._resolveProcedureFrom(source, query);
+        if (hit) return hit;
+        // For procedure lookups, do not fall back to generic source.resolve(),
+        // otherwise sources that prioritize `airport` may return the airport.
+        continue;
+      }
+
       if (typeof source.resolve === 'function') {
         try {
           const hit = await source.resolve(query);
@@ -456,6 +471,68 @@ export class Resolver {
     }
   }
 
+  private async _resolveProcedureFrom(
+    source: LookupSource,
+    query: ResolveQuery
+  ): Promise<unknown | null> {
+    const procedure = String(query.SID ?? query.STAR ?? '')
+      .trim()
+      .toUpperCase();
+    if (!procedure) return null;
+
+    const wantedClass = query.SID ? 'DP' : query.STAR ? 'AP' : '';
+    const wantedAirport = String(query.airport ?? '')
+      .trim()
+      .toUpperCase();
+
+    const airways = (source as CollectionBearingSource).airways;
+    if (!airways || typeof airways.data !== 'function') {
+      return null;
+    }
+
+    let rows: unknown[];
+    try {
+      rows = await this._readCollectionRows(airways, procedure);
+    } catch {
+      return null;
+    }
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return null;
+    }
+
+    for (const row of rows) {
+      const props = this._rowProperties(row);
+      const routeClass = String(props.route_class ?? props.ROUTE_TYPE ?? '')
+        .trim()
+        .toUpperCase();
+      if (wantedClass && routeClass !== wantedClass) {
+        continue;
+      }
+
+      const proc = String(
+        props.procedure ?? props.name ?? props.identifier ?? ''
+      )
+        .trim()
+        .toUpperCase();
+      if (proc !== procedure) {
+        continue;
+      }
+
+      if (wantedAirport) {
+        const apt = String(props.airport ?? '')
+          .trim()
+          .toUpperCase();
+        if (!apt || apt !== wantedAirport) {
+          continue;
+        }
+      }
+
+      return row;
+    }
+
+    return null;
+  }
+
   private async _collectFromSources(
     entity: CollectionEntity,
     options?: CollectionQueryOptions
@@ -466,6 +543,9 @@ export class Resolver {
         : Number.POSITIVE_INFINITY;
     const query = String(options?.query ?? '').trim();
     const sourceFilter = this._normalizeSourceFilter(options?.source);
+    const typeFilter = String(options?.type ?? '')
+      .trim()
+      .toUpperCase();
 
     const out: unknown[] = [];
 
@@ -486,6 +566,9 @@ export class Resolver {
           continue;
         }
         for (const row of rows) {
+          if (typeFilter && !this._matchesCollectionType(row, typeFilter)) {
+            continue;
+          }
           if (query && !this._matchesCollectionQuery(row, query)) {
             continue;
           }
@@ -596,6 +679,24 @@ export class Resolver {
         .toUpperCase()
         .includes(q)
     );
+  }
+
+  private _matchesCollectionType(row: unknown, wantedType: string): boolean {
+    const props = this._rowProperties(row);
+    const type = String(props.type ?? '')
+      .trim()
+      .toUpperCase();
+    if (type) {
+      return type === wantedType;
+    }
+
+    const routeClass = String(props.route_class ?? props.ROUTE_TYPE ?? '')
+      .trim()
+      .toUpperCase();
+    if (wantedType === 'SID') return routeClass === 'DP';
+    if (wantedType === 'STAR') return routeClass === 'AP';
+    if (wantedType === 'AIRWAY') return routeClass === 'AR';
+    return false;
   }
 
   private async _resolveNearestCandidate(

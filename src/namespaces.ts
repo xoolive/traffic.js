@@ -43,6 +43,11 @@ import {
 } from './data/airportLookup.js';
 import { createFr24AirportResolver, FR24_AIRPORTS_URL } from './data/fr24.js';
 import {
+  parseProcedureRouteName,
+  normalizeProcedureProperties,
+  normalizeProcedureFeature,
+} from './data/procedures.js';
+import {
   buildAirspaceGeometry,
   validateGeometryNesting,
 } from './core/airspace.js';
@@ -145,6 +150,16 @@ export const data = {
     FR24_AIRPORTS_URL,
     /** Create a FR24 airport resolver (supports ICAO/IATA/name lookup). */
     createFr24AirportResolver,
+  },
+
+  /** SID/STAR procedure normalization helpers. */
+  procedures: {
+    /** Parse names like FISTO5ALFBO into procedure+airport when class is DP/AP. */
+    parseProcedureRouteName,
+    /** Add normalized procedure/airport fields to a properties object. */
+    normalizeProcedureProperties,
+    /** Normalize a GeoJSON feature in-place shape (returns a cloned feature). */
+    normalizeProcedureFeature,
   },
 };
 

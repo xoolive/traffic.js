@@ -6,6 +6,7 @@ type FetchLike = (
 
 import { loadThrustWasmModule } from './thrustWasm.js';
 import type { RouteSegment, RouteSegmentFeature } from './field15.js';
+import { normalizeProcedureProperties } from './procedures.js';
 import * as turf from '@turf/turf';
 import type { Feature, Polygon, MultiPolygon, Position } from 'geojson';
 
@@ -555,7 +556,7 @@ function compactAirwayProperties(
     out['route_class'] = routeClass.toUpperCase();
   }
 
-  return out;
+  return normalizeProcedureProperties(out);
 }
 
 function toGeoJsonFeature(

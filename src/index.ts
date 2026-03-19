@@ -50,6 +50,11 @@ export type {
   Fr24AirportRow,
 } from './data/fr24.js';
 export type {
+  ProcedureRouteClass,
+  ProcedureType,
+  ParsedProcedureRoute,
+} from './data/procedures.js';
+export type {
   CreateEarthNavResolverOptions,
   CreateEarthFixResolverOptions,
   CreateEarthAwyResolverOptions,

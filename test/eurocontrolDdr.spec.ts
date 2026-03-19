@@ -25,6 +25,15 @@ function makeCore(archive: Uint8Array): EurocontrolDdrCore {
           { code: 'BIBAX', raw_code: 'BIBAX', latitude: 51.5, longitude: 2.0 },
         ],
       },
+      {
+        name: 'FISTO5ALFBO',
+        source: tag,
+        route_class: 'DP',
+        points: [
+          { code: 'FISTO', raw_code: 'FISTO', latitude: 43.5, longitude: 1.2 },
+          { code: 'LFBO', raw_code: 'LFBO', latitude: 43.63, longitude: 1.37 },
+        ],
+      },
     ],
     airspaces: () => [
       {
@@ -64,6 +73,26 @@ function makeCore(archive: Uint8Array): EurocontrolDdrCore {
                 raw_code: 'BIBAX',
                 latitude: 51.5,
                 longitude: 2.0,
+              },
+            ],
+          }
+        : name.toUpperCase() === 'FISTO5ALFBO'
+        ? {
+            name: 'FISTO5ALFBO',
+            source: tag,
+            route_class: 'DP',
+            points: [
+              {
+                code: 'FISTO',
+                raw_code: 'FISTO',
+                latitude: 43.5,
+                longitude: 1.2,
+              },
+              {
+                code: 'LFBO',
+                raw_code: 'LFBO',
+                latitude: 43.63,
+                longitude: 1.37,
               },
             ],
           }
@@ -124,6 +153,19 @@ describe('EUROCONTROL DDR resolver adapter', () => {
     };
     expect(um605.properties.points).to.deep.equal(['DTY', 'BIBAX']);
     expect(um605.properties.route_class).to.equal('AR');
+
+    const fisto = (await resolver.airways['FISTO5ALFBO']) as {
+      properties: {
+        route_class?: string;
+        name?: string;
+        airport?: string;
+        type?: string;
+      };
+    };
+    expect(fisto.properties.route_class).to.equal('DP');
+    expect(fisto.properties.name).to.equal('FISTO5A');
+    expect(fisto.properties.type).to.equal('SID');
+    expect(fisto.properties.airport).to.equal('LFBO');
 
     const airspaceRows = (await resolver.airspaces.data()) as Array<{
       geometry: unknown;

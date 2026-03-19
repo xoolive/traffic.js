@@ -667,6 +667,72 @@ describe('Resolver — lookup API', () => {
       (hit as { properties?: { source?: string } })?.properties?.source
     ).to.equal('ddr');
   });
+
+  it('resolve({SID, airport}) resolves procedure from airway collections', async () => {
+    const source = makeCollectionSource({
+      airways: [
+        {
+          type: 'Feature',
+          properties: {
+            name: 'FISTO5A',
+            raw_name: 'FISTO5ALFBO',
+            airport: 'LFBO',
+            route_class: 'DP',
+            type: 'SID',
+          },
+        },
+      ],
+      airports: [
+        {
+          type: 'Feature',
+          properties: { icao: 'LFBO', name: 'Toulouse Blagnac' },
+        },
+      ],
+    });
+
+    const r = new Resolver().withSource('ddr', source);
+    const hit = await r.resolve({ SID: 'FISTO5A', airport: 'LFBO' });
+    expect(
+      (hit as { properties?: { name?: string; route_class?: string } })
+        ?.properties?.name
+    ).to.equal('FISTO5A');
+    expect(
+      (hit as { properties?: { route_class?: string } })?.properties
+        ?.route_class
+    ).to.equal('DP');
+  });
+
+  it('resolve({STAR, airport}) resolves STAR and does not return airport feature', async () => {
+    const source = makeCollectionSource({
+      airways: [
+        {
+          type: 'Feature',
+          properties: {
+            name: 'KEPER9E',
+            raw_name: 'KEPER9ELFBO',
+            airport: 'LFBO',
+            route_class: 'AP',
+            type: 'STAR',
+          },
+        },
+      ],
+      airports: [
+        {
+          type: 'Feature',
+          properties: { icao: 'LFBO', name: 'Toulouse Blagnac' },
+        },
+      ],
+    });
+
+    const r = new Resolver().withSource('ddr', source);
+    const hit = await r.resolve({ STAR: 'KEPER9E', airport: 'LFBO' });
+    expect(
+      (hit as { properties?: { type?: string } })?.properties?.type
+    ).to.equal('STAR');
+    expect(
+      (hit as { properties?: { icao?: string } })?.properties?.icao
+    ).to.equal(undefined);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -794,6 +860,46 @@ describe('Resolver — collections API', () => {
     const r = new Resolver().withSource('s', s);
     const rows = await r.collections.airports({ limit: 2 });
     expect(rows).to.have.length(2);
+  });
+
+  it('supports type filter (SID/STAR/airway) on airways collections', async () => {
+    const s = makeCollectionSource({
+      airways: [
+        {
+          type: 'Feature',
+          properties: {
+            name: 'FISTO5A',
+            route_class: 'DP',
+            type: 'SID',
+            airport: 'LFBO',
+          },
+        },
+        {
+          type: 'Feature',
+          properties: {
+            name: 'KEPER9E',
+            route_class: 'AP',
+            type: 'STAR',
+            airport: 'LFPG',
+          },
+        },
+        {
+          type: 'Feature',
+          properties: {
+            name: 'UN858',
+            route_class: 'AR',
+            type: 'airway',
+          },
+        },
+      ],
+    });
+
+    const r = new Resolver().withSource('ddr', s);
+    const stars = await r.collections.airways({ type: 'STAR', query: 'LFPG' });
+    expect(stars).to.have.length(1);
+    expect(
+      (stars[0] as { properties?: { name?: string } }).properties?.name
+    ).to.equal('KEPER9E');
   });
 });
 

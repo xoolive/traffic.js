@@ -8,6 +8,7 @@ type FetchLike = (
 ) => Promise<Response>;
 
 import { loadThrustWasmModule } from './thrustWasm.js';
+import { normalizeProcedureProperties } from './procedures.js';
 
 export interface EurocontrolDdrCore {
   airports(): unknown[] | Promise<unknown[]>;
@@ -243,7 +244,7 @@ function compactAirwayProperties(
 
   out['points'] = pointCodes;
 
-  return out;
+  return normalizeProcedureProperties(out);
 }
 
 function unionPolygons(

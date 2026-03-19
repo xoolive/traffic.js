@@ -21,20 +21,13 @@ type FetchLike = (input: string) => Promise<{
   text(): Promise<string>;
 }>;
 
-type ResolveResult =
-  | {
-      type: 'Feature';
-      geometry: { type: 'Point'; coordinates: [number, number] };
-      properties: Record<string, unknown>;
-    }
-  | {
-      type: 'FeatureCollection';
-      features: Array<{
-        type: 'Feature';
-        geometry: { type: 'LineString'; coordinates: Array<[number, number]> };
-        properties: Record<string, unknown>;
-      }>;
-    };
+type ResolveResult = {
+  type: 'Feature';
+  geometry:
+    | { type: 'Point'; coordinates: [number, number] }
+    | { type: 'LineString'; coordinates: Array<[number, number]> };
+  properties: Record<string, unknown>;
+};
 
 type BaseOptions = {
   url?: string;
@@ -401,32 +394,46 @@ export class EarthAwyResolverJS {
     const points = this.byAirway.get(name);
     if (!points || points.length < 2) return null;
 
-    const features = [];
-    for (let i = 0; i < points.length - 1; i++) {
-      const start = points[i];
-      const end = points[i + 1];
-      features.push({
-        type: 'Feature' as const,
-        geometry: {
-          type: 'LineString' as const,
-          coordinates: [
-            [start.longitude, start.latitude] as [number, number],
-            [end.longitude, end.latitude] as [number, number],
-          ],
-        },
-        properties: {
-          name,
-          source: 'earth_awy.dat',
-          start_name: start.ident,
-          end_name: end.ident,
-          start_seq: start.seq,
-          end_seq: end.seq,
-          kind: 'airway',
-        },
-      });
+    const variants: EarthAwyPoint[][] = [];
+    let current: EarthAwyPoint[] = [];
+
+    for (let i = 0; i < points.length; i++) {
+      const point = points[i];
+      if (current.length === 0) {
+        current.push(point);
+        continue;
+      }
+      const prev = current[current.length - 1];
+      const contiguous = point.seq === prev.seq + 1;
+      if (!contiguous) {
+        if (current.length >= 2) variants.push(current);
+        current = [point];
+      } else {
+        current.push(point);
+      }
     }
 
-    return { type: 'FeatureCollection', features };
+    if (current.length >= 2) variants.push(current);
+    if (variants.length === 0) return null;
+
+    const line = variants[0];
+    return {
+      type: 'Feature',
+      geometry: {
+        type: 'LineString',
+        coordinates: line.map(
+          (p) => [p.longitude, p.latitude] as [number, number]
+        ),
+      },
+      properties: {
+        name,
+        source: 'earth_awy.dat',
+        kind: 'airway',
+        points: line.map((p) => p.ident),
+        airway_variant: 1,
+        airway_variant_count: variants.length,
+      },
+    };
   }
 
   enrichRoute(_route: string): [] {
