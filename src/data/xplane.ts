@@ -246,6 +246,32 @@ function parseEarthAwy(text: string): Map<string, EarthAwyPoint[]> {
 export class EarthNavResolverJS {
   constructor(private readonly byIdent: Map<string, EarthNavRow[]>) {}
 
+  navaids = {
+    data: async () =>
+      Array.from(this.byIdent.values())
+        .flat()
+        .map((row) => ({
+          type: 'Feature' as const,
+          geometry: {
+            type: 'Point' as const,
+            coordinates: [row.longitude, row.latitude] as [number, number],
+          },
+          properties: {
+            ident: row.ident,
+            name: row.name,
+            latitude: row.latitude,
+            longitude: row.longitude,
+            elevation_ft: row.elevation_ft,
+            frequency: row.frequency,
+            range_nm: row.range_nm,
+            variation: row.variation,
+            type: row.type,
+            kind: row.kind,
+            source: 'earth_nav.dat',
+          },
+        })),
+  };
+
   async resolve(query: ResolveQuery): Promise<ResolveResult | null> {
     const code = String(query?.navaid ?? query?.fix ?? '').toUpperCase();
     if (!code) return null;
@@ -280,6 +306,27 @@ export class EarthNavResolverJS {
 export class EarthFixResolverJS {
   constructor(private readonly byIdent: Map<string, EarthFixRow[]>) {}
 
+  fixes = {
+    data: async () =>
+      Array.from(this.byIdent.values())
+        .flat()
+        .map((row) => ({
+          type: 'Feature' as const,
+          geometry: {
+            type: 'Point' as const,
+            coordinates: [row.longitude, row.latitude] as [number, number],
+          },
+          properties: {
+            ident: row.ident,
+            name: row.ident,
+            latitude: row.latitude,
+            longitude: row.longitude,
+            kind: row.kind,
+            source: 'earth_fix.dat',
+          },
+        })),
+  };
+
   async resolve(query: ResolveQuery): Promise<ResolveResult | null> {
     const code = String(query?.fix ?? query?.navaid ?? '').toUpperCase();
     if (!code) return null;
@@ -308,6 +355,44 @@ export class EarthFixResolverJS {
 
 export class EarthAwyResolverJS {
   constructor(private readonly byAirway: Map<string, EarthAwyPoint[]>) {}
+
+  airways = {
+    data: async () => {
+      const out: Array<{
+        type: 'Feature';
+        geometry: { type: 'LineString'; coordinates: Array<[number, number]> };
+        properties: Record<string, unknown>;
+      }> = [];
+
+      for (const [name, points] of this.byAirway.entries()) {
+        for (let i = 0; i < points.length - 1; i++) {
+          const start = points[i];
+          const end = points[i + 1];
+          out.push({
+            type: 'Feature',
+            geometry: {
+              type: 'LineString',
+              coordinates: [
+                [start.longitude, start.latitude],
+                [end.longitude, end.latitude],
+              ],
+            },
+            properties: {
+              name,
+              source: 'earth_awy.dat',
+              start_name: start.ident,
+              end_name: end.ident,
+              start_seq: start.seq,
+              end_seq: end.seq,
+              kind: 'airway',
+            },
+          });
+        }
+      }
+
+      return out;
+    },
+  };
 
   async resolve(query: ResolveQuery): Promise<ResolveResult | null> {
     const name = String(query?.airway ?? '').toUpperCase();
@@ -355,6 +440,10 @@ export class XPlaneResolverJS {
     public readonly fix: EarthFixResolverJS,
     public readonly awy: EarthAwyResolverJS
   ) {}
+
+  navaids = this.nav.navaids;
+  fixes = this.fix.fixes;
+  airways = this.awy.airways;
 
   async resolve(query: ResolveQuery): Promise<ResolveResult | null> {
     if (query.airway) {

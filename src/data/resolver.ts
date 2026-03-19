@@ -14,12 +14,19 @@ export type ResolveQuery = {
   airway?: string;
   airspace?: string;
   near?: unknown;
+  /** Restrict lookup to one source or redefine source priority order. */
+  source?: string | string[];
 };
 
 export interface LookupSource {
   resolve?: (query: ResolveQuery) => unknown | Promise<unknown>;
   enrichRoute?: (route: string) => RouteSegment[];
 }
+
+export const NOMINATIM_SEARCH_URL =
+  'https://nominatim.openstreetmap.org/search';
+
+const NEAR_DISTANCE_TIE_EPSILON_KM = 15;
 
 export interface CollectionQueryOptions {
   /** Maximum number of rows to return. */
@@ -44,9 +51,21 @@ type CollectionEntity = 'airports' | 'navaids' | 'airways' | 'airspaces';
 type CollectionBearingSource = LookupSource & {
   airports?: NamedCollection;
   navaids?: NamedCollection;
+  fixes?: NamedCollection;
   airways?: NamedCollection;
   airspaces?: NamedCollection;
 };
+
+type NearPoint = [number, number];
+
+type Candidate = {
+  row: unknown;
+  sourceName: string;
+  coordinates: [number, number];
+  tieKey: string;
+};
+
+type SourceEntry = { name: string; source: LookupSource };
 
 // ---------------------------------------------------------------------------
 // Resolver
@@ -233,7 +252,23 @@ export class Resolver {
       );
     }
 
-    for (const entry of this._sources) {
+    const sourceEntries = this._resolveSourceEntries(query.source);
+
+    if (query.near !== undefined) {
+      const nearPoint = await this._resolveNearPoint(query.near);
+      if (nearPoint) {
+        const nearest = await this._resolveNearestCandidate(
+          query,
+          nearPoint,
+          sourceEntries
+        );
+        if (nearest) {
+          return nearest;
+        }
+      }
+    }
+
+    for (const entry of sourceEntries) {
       const source = entry.source;
       if (typeof source.resolve === 'function') {
         try {
@@ -505,6 +540,27 @@ export class Resolver {
     return cleaned.length > 0 ? new Set(cleaned) : null;
   }
 
+  private _resolveSourceEntries(source?: string | string[]): SourceEntry[] {
+    if (source == null) {
+      return this._sources;
+    }
+
+    const wanted = Array.isArray(source) ? source : [source];
+    const out: SourceEntry[] = [];
+    const seen = new Set<string>();
+
+    for (const nameValue of wanted) {
+      const name = String(nameValue ?? '').trim();
+      if (!name || seen.has(name)) continue;
+      const found = this._sources.find((entry) => entry.name === name);
+      if (!found) continue;
+      out.push(found);
+      seen.add(name);
+    }
+
+    return out;
+  }
+
   private async _readCollectionRows(
     collection: NamedCollection,
     query: string
@@ -540,5 +596,272 @@ export class Resolver {
         .toUpperCase()
         .includes(q)
     );
+  }
+
+  private async _resolveNearestCandidate(
+    query: ResolveQuery,
+    nearPoint: NearPoint,
+    sourceEntries: SourceEntry[]
+  ): Promise<unknown | null> {
+    const candidates = await this._collectNearCandidates(query, sourceEntries);
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    let best = candidates[0];
+    let bestDistance = this._distanceKm(best.coordinates, nearPoint);
+
+    for (let i = 1; i < candidates.length; i++) {
+      const candidate = candidates[i];
+      const distance = this._distanceKm(candidate.coordinates, nearPoint);
+      if (distance < bestDistance - NEAR_DISTANCE_TIE_EPSILON_KM) {
+        best = candidate;
+        bestDistance = distance;
+      } else if (
+        Math.abs(distance - bestDistance) <= NEAR_DISTANCE_TIE_EPSILON_KM &&
+        candidate.tieKey < best.tieKey
+      ) {
+        best = candidate;
+        bestDistance = distance;
+      }
+    }
+
+    return this._annotateCollectionRow(best.row, best.sourceName);
+  }
+
+  private async _collectNearCandidates(
+    query: ResolveQuery,
+    sourceEntries: SourceEntry[]
+  ): Promise<Candidate[]> {
+    const queryKey =
+      query.airport ??
+      query.navaid ??
+      query.fix ??
+      query.airway ??
+      query.airspace;
+    const wanted = String(queryKey ?? '')
+      .trim()
+      .toUpperCase();
+    if (!wanted) {
+      return [];
+    }
+
+    const entity = query.airport
+      ? 'airports'
+      : query.navaid
+      ? 'navaids'
+      : query.fix
+      ? 'fixes'
+      : null;
+    if (!entity) {
+      return [];
+    }
+
+    const out: Candidate[] = [];
+    for (
+      let sourceIndex = 0;
+      sourceIndex < sourceEntries.length;
+      sourceIndex++
+    ) {
+      const entry = sourceEntries[sourceIndex];
+      const source = entry.source as CollectionBearingSource;
+      const collections: NamedCollection[] = [];
+      if (entity === 'fixes') {
+        if (source.fixes) collections.push(source.fixes);
+        if (source.navaids) collections.push(source.navaids);
+      } else {
+        const collection = source[entity];
+        if (collection) collections.push(collection);
+      }
+
+      for (const collection of collections) {
+        if (typeof collection.data !== 'function') continue;
+        try {
+          const rows = await collection.data();
+          if (!Array.isArray(rows)) continue;
+          for (const row of rows) {
+            if (!this._matchesResolveKey(row, query, wanted)) continue;
+            const coords = this._extractPointCoordinates(row);
+            if (!coords) continue;
+            out.push({
+              row,
+              sourceName: entry.name,
+              coordinates: coords,
+              tieKey: `${String(sourceIndex).padStart(4, '0')}|${coords[0]}|${
+                coords[1]
+              }|${this._rowIdentityKey(row)}|${entry.name}`,
+            });
+          }
+        } catch {
+          // Source failed — skip silently.
+        }
+      }
+    }
+
+    return out;
+  }
+
+  private _matchesResolveKey(
+    row: unknown,
+    query: ResolveQuery,
+    wanted: string
+  ): boolean {
+    const props = this._rowProperties(row);
+    const values = (keys: string[]) =>
+      keys
+        .map((key) =>
+          String(props[key] ?? '')
+            .trim()
+            .toUpperCase()
+        )
+        .filter((value) => value.length > 0);
+
+    if (query.airport) {
+      const codes = values([
+        'icao',
+        'icao_code',
+        'ident',
+        'code',
+        'iata',
+        'iata_code',
+      ]);
+      return codes.includes(wanted);
+    }
+
+    if (query.navaid || query.fix) {
+      const codes = values(['ident', 'name', 'code', 'raw_code']);
+      return codes.includes(wanted);
+    }
+
+    return false;
+  }
+
+  private _extractPointCoordinates(row: unknown): [number, number] | null {
+    const obj = (row ?? {}) as Record<string, unknown>;
+    const geometry = obj.geometry as Record<string, unknown> | undefined;
+    if (geometry && geometry.type === 'Point') {
+      const coordinates = geometry.coordinates;
+      if (
+        Array.isArray(coordinates) &&
+        coordinates.length >= 2 &&
+        Number.isFinite(Number(coordinates[0])) &&
+        Number.isFinite(Number(coordinates[1]))
+      ) {
+        return [Number(coordinates[0]), Number(coordinates[1])];
+      }
+    }
+
+    const props = this._rowProperties(row);
+    const lon = Number(
+      props.longitude ?? props.lon ?? props.lng ?? props.LONGITUDE ?? props.x
+    );
+    const lat = Number(
+      props.latitude ?? props.lat ?? props.LATITUDE ?? props.y
+    );
+    if (Number.isFinite(lon) && Number.isFinite(lat)) {
+      return [lon, lat];
+    }
+    return null;
+  }
+
+  private _rowProperties(row: unknown): Record<string, unknown> {
+    const obj = (row ?? {}) as Record<string, unknown>;
+    const properties = obj.properties;
+    if (properties && typeof properties === 'object') {
+      return properties as Record<string, unknown>;
+    }
+    return obj;
+  }
+
+  private _rowIdentityKey(row: unknown): string {
+    const props = this._rowProperties(row);
+    return [
+      String(props.ident ?? ''),
+      String(props.code ?? ''),
+      String(props.name ?? ''),
+      String(props.icao ?? ''),
+      String(props.iata ?? ''),
+    ]
+      .map((value) => value.trim().toUpperCase())
+      .filter((value) => value.length > 0)
+      .join('|');
+  }
+
+  private _distanceKm(a: NearPoint, b: NearPoint): number {
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+    const dLat = toRad(b[1] - a[1]);
+    const dLon = toRad(b[0] - a[0]);
+    const lat1 = toRad(a[1]);
+    const lat2 = toRad(b[1]);
+    const sinLat = Math.sin(dLat / 2);
+    const sinLon = Math.sin(dLon / 2);
+    const h =
+      sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLon * sinLon;
+    return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+  }
+
+  private async _resolveNearPoint(near: unknown): Promise<NearPoint | null> {
+    if (
+      near &&
+      typeof near === 'object' &&
+      'then' in (near as Record<string, unknown>) &&
+      typeof (near as { then?: unknown }).then === 'function'
+    ) {
+      try {
+        const awaited = await (near as Promise<unknown>);
+        return this._resolveNearPoint(awaited);
+      } catch {
+        return null;
+      }
+    }
+
+    if (Array.isArray(near) && near.length >= 2) {
+      const lon = Number(near[0]);
+      const lat = Number(near[1]);
+      if (Number.isFinite(lon) && Number.isFinite(lat)) {
+        return [lon, lat];
+      }
+    }
+
+    const featureCoords = this._extractPointCoordinates(near);
+    if (featureCoords) {
+      return featureCoords;
+    }
+
+    if (typeof near === 'string' && near.trim().length > 0) {
+      const local = await this.resolve({ airport: near.trim() });
+      const localCoords = this._extractPointCoordinates(local);
+      if (localCoords) {
+        return localCoords;
+      }
+      return this._geocodeNearString(near.trim());
+    }
+
+    return null;
+  }
+
+  private async _geocodeNearString(text: string): Promise<NearPoint | null> {
+    const url = new URL(NOMINATIM_SEARCH_URL);
+    url.searchParams.set('q', text);
+    url.searchParams.set('format', 'jsonv2');
+    url.searchParams.set('limit', '1');
+
+    try {
+      const response = await fetch(url.toString());
+      if (!response.ok) {
+        return null;
+      }
+      const rows = (await response.json()) as Array<Record<string, unknown>>;
+      const first = Array.isArray(rows) ? rows[0] : null;
+      if (!first) return null;
+      const lon = Number(first.lon ?? first.longitude);
+      const lat = Number(first.lat ?? first.latitude);
+      if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
+        return null;
+      }
+      return [lon, lat];
+    } catch {
+      return null;
+    }
   }
 }

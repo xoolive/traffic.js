@@ -610,6 +610,63 @@ describe('Resolver — lookup API', () => {
       (hit as { properties?: { icao?: string } })?.properties?.icao
     ).to.equal('FORCED');
   });
+
+  it('resolve({source}) restricts lookup to one source', async () => {
+    const s1 = makeCollectionSource({
+      airports: [
+        {
+          type: 'Feature',
+          properties: { icao: 'LFBO', name: 'Toulouse Blagnac' },
+        },
+      ],
+    });
+    const s2 = makeCollectionSource({
+      airports: [
+        {
+          type: 'Feature',
+          properties: { icao: 'LFBD', name: 'Bordeaux Merignac' },
+        },
+      ],
+    });
+
+    const r = new Resolver().withSource('fr24', s1).withSource('ddr', s2);
+    const hit = await r.resolve({
+      airport: 'Bordeaux Merignac',
+      source: 'fr24',
+    });
+    expect(hit).to.equal(null);
+  });
+
+  it('resolve({source:[...]}) uses provided list as custom priority order', async () => {
+    const xplaneSource = {
+      resolve: async (query: { navaid?: string }) =>
+        query.navaid === 'KLO'
+          ? {
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [8.55, 47.46] },
+              properties: { ident: 'KLO', source: 'xplane' },
+            }
+          : null,
+    };
+    const ddrSource = {
+      resolve: async (query: { navaid?: string }) =>
+        query.navaid === 'KLO'
+          ? {
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [8.56, 47.47] },
+              properties: { ident: 'KLO', source: 'ddr' },
+            }
+          : null,
+    };
+
+    const r = new Resolver()
+      .withSource('xplane', xplaneSource)
+      .withSource('ddr', ddrSource);
+    const hit = await r.resolve({ navaid: 'KLO', source: ['ddr', 'xplane'] });
+    expect(
+      (hit as { properties?: { source?: string } })?.properties?.source
+    ).to.equal('ddr');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -737,5 +794,160 @@ describe('Resolver — collections API', () => {
     const r = new Resolver().withSource('s', s);
     const rows = await r.collections.airports({ limit: 2 });
     expect(rows).to.have.length(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10. near-based disambiguation
+// ---------------------------------------------------------------------------
+
+describe('Resolver — near disambiguation', () => {
+  const kloSwiss = {
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [8.55, 47.46] },
+    properties: { ident: 'KLO', name: 'KLO', kind: 'navaid', source: 'swiss' },
+  };
+
+  const kloUs = {
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [-86.62, 39.15] },
+    properties: { ident: 'KLO', name: 'KLO', kind: 'navaid', source: 'us' },
+  };
+
+  const zrhAirport = {
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [8.5492, 47.4647] },
+    properties: { icao: 'LSZH', iata: 'ZRH', name: 'Zurich' },
+  };
+
+  it('resolve({navaid, near:[lon,lat]}) returns nearest candidate', async () => {
+    const s1 = makeCollectionSource({ navaids: [kloUs] });
+    const s2 = makeCollectionSource({ navaids: [kloSwiss] });
+    const r = new Resolver().withSource('us', s1).withSource('swiss', s2);
+
+    const hit = await r.resolve({ navaid: 'KLO', near: [8.5, 47.4] });
+    expect(
+      (hit as { properties?: { source?: string } })?.properties?.source
+    ).to.equal('swiss');
+  });
+
+  it('resolve({navaid, near:string}) geocodes through Nominatim', async () => {
+    const s1 = makeCollectionSource({ navaids: [kloUs, kloSwiss] });
+    const r = new Resolver().withSource('mix', s1);
+
+    const originalFetch = globalThis.fetch;
+    let calledUrl = '';
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      calledUrl = String(input);
+      return {
+        ok: true,
+        json: async () => [{ lon: 8.54, lat: 47.37 }],
+      } as Response;
+    }) as typeof fetch;
+
+    try {
+      const hit = await r.resolve({ navaid: 'KLO', near: 'Switzerland' });
+      expect(calledUrl).to.include('nominatim.openstreetmap.org/search');
+      expect(calledUrl).to.include('Switzerland');
+      expect(
+        (hit as { properties?: { source?: string } })?.properties?.source
+      ).to.equal('swiss');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('resolve({navaid, near:feature}) accepts a feature from prior resolve()', async () => {
+    const airportsSource = makeCollectionSource({ airports: [zrhAirport] });
+    const navaidsSource = makeCollectionSource({ navaids: [kloUs, kloSwiss] });
+    const r = new Resolver()
+      .withSource('airports', airportsSource)
+      .withSource('navaids', navaidsSource);
+
+    const zrh = await r.resolve({ airport: 'Zurich' });
+    const hit = await r.resolve({ navaid: 'KLO', near: zrh });
+
+    expect(
+      (hit as { properties?: { source?: string } })?.properties?.source
+    ).to.equal('swiss');
+  });
+
+  it('near-based result is deterministic regardless of source order', async () => {
+    const a = makeCollectionSource({ navaids: [kloUs] });
+    const b = makeCollectionSource({ navaids: [kloSwiss] });
+
+    const r1 = new Resolver().withSource('a', a).withSource('b', b);
+    const r2 = new Resolver().withSource('b', b).withSource('a', a);
+
+    const hit1 = await r1.resolve({ navaid: 'KLO', near: [8.5, 47.4] });
+    const hit2 = await r2.resolve({ navaid: 'KLO', near: [8.5, 47.4] });
+
+    expect(
+      (hit1 as { geometry?: { coordinates?: number[] } })?.geometry?.coordinates
+    ).to.deep.equal(
+      (hit2 as { geometry?: { coordinates?: number[] } })?.geometry?.coordinates
+    );
+  });
+
+  it('near accepts a promise of feature (e.g. near: resolver.resolve(...))', async () => {
+    const airportsSource = makeCollectionSource({ airports: [zrhAirport] });
+    const navaidsSource = makeCollectionSource({ navaids: [kloUs, kloSwiss] });
+    const r = new Resolver()
+      .withSource('airports', airportsSource)
+      .withSource('navaids', navaidsSource);
+
+    const nearPromise = r.resolve({ airport: 'Zurich' });
+    const hit = await r.resolve({ navaid: 'KLO', near: nearPromise });
+    expect(
+      (hit as { properties?: { source?: string } })?.properties?.source
+    ).to.equal('swiss');
+  });
+
+  it('prefers resolver source order in exact ties', async () => {
+    const sameDdr = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [8.55, 47.46] },
+      properties: { ident: 'KLO', name: 'KLO', source: 'ddr' },
+    };
+    const sameXplane = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [8.55, 47.46] },
+      properties: { ident: 'KLO', name: 'KLO', source: 'earth_nav.dat' },
+    };
+    const r = new Resolver()
+      .withSource('ddr', makeCollectionSource({ navaids: [sameDdr] }))
+      .withSource('xplane', makeCollectionSource({ navaids: [sameXplane] }));
+
+    const hit = await r.resolve({ navaid: 'KLO', near: [8.55, 47.46] });
+    expect(
+      (hit as { properties?: { resolver_source?: string } })?.properties
+        ?.resolver_source
+    ).to.equal('ddr');
+  });
+
+  it('near tie-break follows query.source ordering when provided', async () => {
+    const sameDdr = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [8.55, 47.46] },
+      properties: { ident: 'KLO', name: 'KLO', source: 'ddr' },
+    };
+    const sameXplane = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [8.55, 47.46] },
+      properties: { ident: 'KLO', name: 'KLO', source: 'earth_nav.dat' },
+    };
+    const r = new Resolver()
+      .withSource('xplane', makeCollectionSource({ navaids: [sameXplane] }))
+      .withSource('ddr', makeCollectionSource({ navaids: [sameDdr] }));
+
+    const hit = await r.resolve({
+      navaid: 'KLO',
+      near: [8.55, 47.46],
+      source: ['ddr', 'xplane'],
+    });
+    expect(
+      (hit as { properties?: { resolver_source?: string } })?.properties
+        ?.resolver_source
+    ).to.equal('ddr');
   });
 });
