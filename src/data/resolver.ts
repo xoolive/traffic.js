@@ -177,7 +177,7 @@ export class Resolver {
    *
    * ArcGIS data is an alternative US source with different coverage than NASR.
    *
-   * Requires thrust-wasm ≥ 0.3 and the datasets to be preloaded. Call
+   * Requires thrust-wasm ≥ 0.2.2 and the datasets to be preloaded. Call
    * `await arcgis.preloadAll()` (or construct with `{ eager: true }`) before
    * passing the resolver to this method.
    *
@@ -196,7 +196,7 @@ export class Resolver {
    * - `enrichRoute(route)` for field-15 route expansion
    *
    * `EurocontrolDdrResolverJS`, `NasrResolverJS`, and `FaaArcgisResolverJS`
-   * (thrust-wasm ≥ 0.3, after `preloadAll()`) implement `enrichRoute`.
+   * (thrust-wasm ≥ 0.2.2, after `preloadAll()`) implement `enrichRoute`.
    *
    * @param name - A label for this source (used for debugging only).
    * @param source - Any object with at least `resolve()` or `enrichRoute()`.
@@ -221,7 +221,7 @@ export class Resolver {
     if (!hasResolve && !hasEnrichRoute) {
       throw new Error(
         `Source "${name}" must implement resolve() or enrichRoute(). ` +
-          `FaaArcgisResolverJS requires thrust-wasm ≥ 0.3 and preloaded datasets — ` +
+          `FaaArcgisResolverJS requires thrust-wasm ≥ 0.2.2 and preloaded datasets — ` +
           `call await arcgis.preloadAll() before passing it to withArcgis().`
       );
     }

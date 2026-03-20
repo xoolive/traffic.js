@@ -19,7 +19,12 @@ import { expect } from 'chai';
 // It is exported from the data barrel as part of the module surface.
 import { env, type ThrustWasmConfig } from '../src/index.js';
 
-const { setThrustWasm, getThrustWasmConfig } = env;
+const {
+  setThrustWasm,
+  getThrustWasmConfig,
+  getDefaultThrustWasmVersion,
+  getDefaultThrustWasmCdnUrls,
+} = env;
 
 // loadThrustWasmModule is @internal but exported from thrustWasm.ts — import
 // it directly from the source module so we can exercise the priority chain
@@ -98,6 +103,18 @@ describe('setThrustWasm / getThrustWasmConfig', () => {
     expect(getThrustWasmConfig().thrustModuleUrl).to.equal(
       'http://example.com/b.js'
     );
+  });
+
+  it('exposes default thrust-wasm version and CDN URLs', () => {
+    const version = getDefaultThrustWasmVersion();
+    const urls = getDefaultThrustWasmCdnUrls();
+
+    expect(version).to.match(/^\d+\.\d+\.\d+(?:[-.][0-9A-Za-z.-]+)?$/);
+    expect(urls).to.have.length(2);
+    for (const url of urls) {
+      expect(url).to.contain(`thrust-wasm@${version}`);
+      expect(url).to.match(/^https:\/\//);
+    }
   });
 });
 

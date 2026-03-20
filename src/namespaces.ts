@@ -8,7 +8,12 @@
 
 import { setEnv } from './core/env.js';
 import { setTrafficBaseUrl } from './core/holdingPattern.js';
-import { setThrustWasm, getThrustWasmConfig } from './data/thrustWasm.js';
+import {
+  setThrustWasm,
+  getThrustWasmConfig,
+  getDefaultThrustWasmVersion,
+  getDefaultThrustWasmCdnUrls,
+} from './data/thrustWasm.js';
 import { Flight } from './core/flight.js';
 import { Traffic } from './core/traffic.js';
 import { belevingsvlucht, quickstart } from './data/samples.js';
@@ -82,6 +87,10 @@ export const env = {
   setThrustWasm,
   /** Return the current thrust-wasm configuration. */
   getThrustWasmConfig,
+  /** Return the default pinned thrust-wasm npm version used for CDN auto-load. */
+  getDefaultThrustWasmVersion,
+  /** Return the fallback CDN URLs used for thrust-wasm auto-load. */
+  getDefaultThrustWasmCdnUrls,
 };
 
 /** Bundled sample flight / traffic datasets. */

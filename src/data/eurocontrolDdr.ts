@@ -116,7 +116,7 @@ export interface EurocontrolDdrCore {
   resolve_airspace?(
     designator: string
   ): unknown | null | Promise<unknown | null>;
-  /** Available when backed by a thrust-wasm EurocontrolResolver (v0.3+). */
+  /** Available when backed by a thrust-wasm EurocontrolResolver (v0.2.2+). */
   enrichRoute?(route: string): RouteSegment[];
 }
 
@@ -928,7 +928,7 @@ export class EurocontrolDdrResolverJS {
    * Returns an array of `{ start, end, name? }` objects. Each point has
    * `{ latitude, longitude, name?, kind? }`.
    *
-   * Requires thrust-wasm ≥ 0.3 (the `enrichRoute` method on EurocontrolResolver).
+   * Requires thrust-wasm ≥ 0.2.2 (the `enrichRoute` method on EurocontrolResolver).
    * Throws if the loaded WASM build does not expose `enrichRoute`.
    */
   enrichRoute(route: string): RouteSegment[] {

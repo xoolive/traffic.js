@@ -1,4 +1,9 @@
-export { setThrustWasm, getThrustWasmConfig } from './thrustWasm.js';
+export {
+  setThrustWasm,
+  getThrustWasmConfig,
+  getDefaultThrustWasmVersion,
+  getDefaultThrustWasmCdnUrls,
+} from './thrustWasm.js';
 export type { ThrustWasmConfig } from './thrustWasm.js';
 export * from './faaArcgis.js';
 export * from './eurocontrolDdr.js';

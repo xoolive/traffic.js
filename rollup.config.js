@@ -5,6 +5,7 @@ import typescript from 'rollup-plugin-typescript2';
 
 import { nodeResolve } from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs';
+import replace from '@rollup/plugin-replace';
 import terser from '@rollup/plugin-terser';
 import { createRequire } from 'module';
 
@@ -54,8 +55,19 @@ const nodeExternal = [
 const browserBundledDeps = new Set(['onnxruntime-web', 'osmtogeojson']);
 const browserExternal = nodeExternal.filter((d) => !browserBundledDeps.has(d));
 
+const thrustWasmRange = String(pkg.dependencies?.['thrust-wasm'] ?? '');
+const thrustWasmVersion =
+  thrustWasmRange.match(/\d+\.\d+\.\d+(?:[-.][0-9A-Za-z.-]+)?/)?.[0] ?? '0.2.2';
+
 let basePlugins = [
   json(),
+  replace({
+    preventAssignment: true,
+    values: {
+      'process.env.THRUST_WASM_DEFAULT_VERSION':
+        JSON.stringify(thrustWasmVersion),
+    },
+  }),
   bundleSize(),
   typescript({
     typescript: require('typescript'),

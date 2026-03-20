@@ -142,7 +142,7 @@ export interface FaaArcgisCore {
   resolve_sid?(name: string): unknown | null | Promise<unknown | null>;
   resolve_star?(name: string): unknown | null | Promise<unknown | null>;
   resolve_airspace(name: string): unknown | null | Promise<unknown | null>;
-  /** Available in thrust-wasm ≥ 0.3 only — may be absent on older builds. */
+  /** Available in thrust-wasm ≥ 0.2.2 only — may be absent on older builds. */
   enrichRoute?(route: string): RouteSegment[];
 }
 
@@ -1008,7 +1008,7 @@ export class FaaArcgisResolverJS {
   }
 
   // -------------------------------------------------------------------------
-  // Route enrichment (field 15) — requires thrust-wasm ≥ 0.3
+  // Route enrichment (field 15) — requires thrust-wasm ≥ 0.2.2
   // -------------------------------------------------------------------------
 
   /**
@@ -1016,7 +1016,7 @@ export class FaaArcgisResolverJS {
    * using FAA ArcGIS navigation data.
    *
    * Requires a thrust-wasm build that includes `FaaArcgisResolver.enrichRoute`
-   * (≥ 0.3). Throws if the loaded WASM build does not expose the method.
+   * (≥ 0.2.2). Throws if the loaded WASM build does not expose the method.
    *
    * Returns `{ start, end, name? }` objects where `start`/`end` are
    * `{ latitude, longitude, name?, kind? }`.
@@ -1050,7 +1050,7 @@ export class FaaArcgisResolverJS {
    * Resolve a field 15 route and return a GeoJSON FeatureCollection of
    * LineString features (one per segment).
    *
-   * Requires thrust-wasm ≥ 0.3 and preloaded datasets (see {@link enrichRoute}).
+   * Requires thrust-wasm ≥ 0.2.2 and preloaded datasets (see {@link enrichRoute}).
    */
   enrichRouteAsGeoJSON(route: string): {
     type: 'FeatureCollection';

@@ -23,7 +23,7 @@
  *
  * @example
  * // Production — no config needed.
- * // The library auto-loads thrust-wasm@latest from jsDelivr CDN.
+ * // The library auto-loads a pinned thrust-wasm release from jsDelivr CDN.
  *
  * @example
  * // Development — serve pkg/web/ locally (e.g. with `npx serve --cors -p 8002`):
@@ -58,7 +58,7 @@ let _config: ThrustWasmConfig = {};
  * Subsequent calls replace the previous configuration entirely.
  *
  * In production you typically do not need to call this — the library will
- * auto-load `thrust-wasm@latest` from the jsDelivr CDN. Call it only when
+ * auto-load a pinned `thrust-wasm` release from the jsDelivr CDN. Call it only when
  * you need to pin a specific version or serve the module from a local dev
  * server.
  *
@@ -88,10 +88,37 @@ export function getThrustWasmConfig(): ThrustWasmConfig {
 // ---------------------------------------------------------------------------
 
 /** @internal */
+function normalizeSemver(value: string | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  const match = value.match(/\d+\.\d+\.\d+(?:[-.][0-9A-Za-z.-]+)?/);
+  return match ? match[0] : null;
+}
+
+/** @internal */
+export const THRUST_WASM_DEFAULT_VERSION =
+  normalizeSemver(process.env.THRUST_WASM_DEFAULT_VERSION) ?? '0.2.2';
+
+/** @internal */
 export const THRUST_WASM_CDN_URLS = [
-  'https://cdn.jsdelivr.net/npm/thrust-wasm@latest/web/thrust_wasm.js',
-  'https://unpkg.com/thrust-wasm@latest/web/thrust_wasm.js',
+  `https://cdn.jsdelivr.net/npm/thrust-wasm@${THRUST_WASM_DEFAULT_VERSION}/web/thrust_wasm.js`,
+  `https://unpkg.com/thrust-wasm@${THRUST_WASM_DEFAULT_VERSION}/web/thrust_wasm.js`,
 ] as const;
+
+/**
+ * Return the default thrust-wasm npm version used by CDN auto-loading.
+ */
+export function getDefaultThrustWasmVersion(): string {
+  return THRUST_WASM_DEFAULT_VERSION;
+}
+
+/**
+ * Return the CDN URL candidates used when no explicit module URL is configured.
+ */
+export function getDefaultThrustWasmCdnUrls(): readonly string[] {
+  return [...THRUST_WASM_CDN_URLS];
+}
 
 // ---------------------------------------------------------------------------
 // Per-call options (override the global config for a single resolver call)
