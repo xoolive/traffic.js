@@ -16,7 +16,9 @@ In Observable:
 [https://observablehq.com/@xoolive/traffic-js](https://observablehq.com/@xoolive/traffic-js)
 
 ```js
-import { Flight, Traffic } from '@xoolive/traffic-js';
+import * as traffic from 'traffic.js';
+
+const { Flight, Traffic } = traffic.core;
 ```
 
 When loading from a local dev server, call `setEnv` once to register Observable
@@ -24,16 +26,17 @@ globals so that `table()` and `view()` work:
 
 ```js
 t = require("http://localhost:4000/traffic.js").then(t => {
-  t.setEnv({ Inputs, html, d3, Plot });
+  t.env.setEnv({ Inputs, html, d3, Plot });
   return t;
 })
 
-// Render an Inputs.table for a Traffic or Flight object:
-quickstart.table()
+// Render an Inputs.table for a Traffic object:
+quickstart = await t.data.samples.quickstart();
+quickstart.table();
 
 // Render a map + metadata card (returns a Promise; Observable awaits it).
 // Works with viewof so the cell's value is the Flight itself:
-viewof belevingsvlucht = (await t.belevingsvlucht).view()
+viewof belevingsvlucht = (await t.data.samples.belevingsvlucht()).view();
 ```
 
 ## Field 15 route resolution
@@ -50,7 +53,7 @@ geographic waypoints using whichever navigation databases you attach.
 // Production: no config needed — the library auto-loads from jsDelivr CDN.
 
 // Development (local static server serving pkg/web/):
-traffic.setThrustWasm({
+traffic.env.setThrustWasm({
   thrustModuleUrl: 'http://localhost:8002/web/thrust_wasm.js',
 });
 ```
@@ -62,30 +65,30 @@ Call it before creating any resolver.
 
 ```js
 // EUROCONTROL DDR — European airways, navaids, airports
-ddr = await traffic.createEurocontrolDdrResolver({
+ddr = await traffic.data.eurocontrol.createEurocontrolDdrResolver({
   archive: await FileAttachment('airac_2111.zip').arrayBuffer(),
 });
 
 // FAA NASR — US airways, navaids, airports
-nasr = await traffic.createNasrResolver({
+nasr = await traffic.data.faa.createNasrResolver({
   archiveUrl: 'https://your-server/nasr.zip',
 });
 
 // FAA ArcGIS — alternative US source (no archive needed, fetches lazily)
-arcgis = await traffic.createFaaArcgisResolver();
+arcgis = await traffic.data.faa.createFaaArcgisResolver();
 ```
 
 **Step 3 — build a `Resolver`** and attach sources in priority order:
 
 ```js
 // European-first: DDR wins when both DDR and NASR know a waypoint
-resolver = new traffic.Resolver().withDdr(ddr).withNasr(nasr);
+resolver = new traffic.data.Resolver().withDdr(ddr).withNasr(nasr);
 
 // US-only:
-resolver = new traffic.Resolver().withNasr(nasr);
+resolver = new traffic.data.Resolver().withNasr(nasr);
 
 // ArcGIS as secondary US fallback:
-resolver = new traffic.Resolver()
+resolver = new traffic.data.Resolver()
   .withDdr(ddr)
   .withNasr(nasr)
   .withArcgis(arcgis);
@@ -103,7 +106,7 @@ route =
 segments = resolver.enrichRoute(route);
 
 // GeoJSON FeatureCollection of LineString features:
-fc = resolver.enrichRouteAsGeoJSON(route);
+fc = await resolver.enrichRouteAsGeoJSON(route);
 
 // Raw tokenisation (no nav-db needed):
 tokens = await resolver.parseField15(route);
@@ -153,7 +156,7 @@ await ddr.navaids.search('JSY');
 ### FAA ArcGIS resolver
 
 ```js
-arcgis = await traffic.createFaaArcgisResolver();
+arcgis = await traffic.data.faa.createFaaArcgisResolver();
 klax = await arcgis.airports['KLAX'];
 jfk = await arcgis.airports['KJFK'];
 ```
@@ -170,7 +173,7 @@ To serve locally:
 ```sh
 # from the thrust-wasm pkg directory:
 npx serve --cors -p 8002 /path/to/thrust/crates/thrust-wasm/pkg
-# then in Observable: traffic.setThrustWasm({ thrustModuleUrl: "http://localhost:8002/web/thrust_wasm.js" })
+# then in Observable: traffic.env.setThrustWasm({ thrustModuleUrl: "http://localhost:8002/web/thrust_wasm.js" })
 ```
 
 ## Aircraft information
@@ -180,22 +183,22 @@ Country flag, registration, and type are looked up via
 and degrades silently to the raw `icao24` hex code when unavailable.
 
 ```js
-import { aircraftInfo } from '@xoolive/traffic-js';
-const info = await aircraftInfo('484506');
+import * as traffic from 'traffic.js';
+const info = await traffic.data.aircraftInfo('484506');
 // → { icao24: '484506', flag: '🇳🇱', registration: 'PH-TFK', typecode: 'B738', ... }
 ```
 
 ## FAA ArcGIS resolver (navigation collections only)
 
 ```js
-import { createFaaArcgisResolver } from '@xoolive/traffic-js';
+import * as traffic from 'traffic.js';
 
-const resolver = await createFaaArcgisResolver();
+const resolver = await traffic.data.faa.createFaaArcgisResolver();
 const airports = await resolver.airports.data();
 const klax = await resolver.airports['KLAX'];
 ```
 
-`createFaaArcgisResolver()` auto-loads `thrust-wasm`:
+`traffic.data.faa.createFaaArcgisResolver()` auto-loads `thrust-wasm`:
 
 - Node / bundlers: from the installed npm dependency.
 - Browser / Observable: from jsDelivr CDN, then unpkg fallback.
