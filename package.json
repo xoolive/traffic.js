@@ -1,6 +1,6 @@
 {
   "name": "traffic.js",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Process and visualise aircraft trajectories",
   "type": "module",
   "main": "dist/traffic.node.js",
