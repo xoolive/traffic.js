@@ -9,4 +9,4 @@ export * from './samples.js';
 export * from './xplane.js';
 export * from './airportLookup.js';
 export * from './fr24.js';
-export * from './procedures.js';
+export * from './osm.js';

@@ -92,6 +92,10 @@ export interface RouteSegment {
   end: ResolvedRoutePoint;
   /** Airway name (e.g. "UM184"), SID/STAR name, or undefined for DCT legs */
   name?: string;
+  /** Segment classification from thrust-wasm: route | dct | unresolved */
+  segment_type?: string;
+  /** Connector label associated with this segment (e.g. NATD, DCT, UN858). */
+  connector?: string;
 }
 
 /** GeoJSON LineString feature representing a single route segment */
@@ -103,6 +107,8 @@ export type RouteSegmentFeature = {
   };
   properties: {
     name: string | null;
+    segment_type: string | null;
+    connector: string | null;
     start_name: string | null;
     end_name: string | null;
     start_kind: string | null;
@@ -320,6 +326,10 @@ export class Field15Resolver {
       },
       properties: {
         name: seg.name ?? null,
+        segment_type: seg.segment_type ?? null,
+        connector:
+          seg.connector ??
+          (seg.segment_type === 'dct' ? 'DCT' : seg.name ?? null),
         start_name: seg.start.name ?? null,
         end_name: seg.end.name ?? null,
         start_kind: seg.start.kind ?? null,

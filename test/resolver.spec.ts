@@ -36,7 +36,7 @@
 import { describe, it } from 'mocha';
 import { expect } from 'chai';
 
-import { data, type RouteSegment } from '../src/index.js';
+import { data, type Field15Element, type RouteSegment } from '../src/index.js';
 
 const { Resolver } = data;
 
@@ -429,19 +429,19 @@ describe('Resolver — source failure tolerance', () => {
 // ---------------------------------------------------------------------------
 
 describe('Resolver — enrichRouteAsGeoJSON', () => {
-  it('returns a FeatureCollection', () => {
+  it('returns a FeatureCollection', async () => {
     const r = new Resolver().withSource('ddr', makeEnricher([SEG_EU_A]));
-    const fc = r.enrichRouteAsGeoJSON('route');
+    const fc = await r.enrichRouteAsGeoJSON('route');
     expect(fc.type).to.equal('FeatureCollection');
     expect(fc.features).to.be.an('array');
   });
 
-  it('each feature is a LineString with 2 coordinates', () => {
+  it('each feature is a LineString with 2 coordinates', async () => {
     const r = new Resolver().withSource(
       'ddr',
       makeEnricher([SEG_EU_A, SEG_EU_B])
     );
-    const fc = r.enrichRouteAsGeoJSON('route');
+    const fc = await r.enrichRouteAsGeoJSON('route');
     expect(fc.features).to.have.length(2);
     for (const f of fc.features) {
       expect(f.geometry.type).to.equal('LineString');
@@ -449,21 +449,21 @@ describe('Resolver — enrichRouteAsGeoJSON', () => {
     }
   });
 
-  it('coordinates are [longitude, latitude] (GeoJSON convention)', () => {
+  it('coordinates are [longitude, latitude] (GeoJSON convention)', async () => {
     const r = new Resolver().withSource('ddr', makeEnricher([SEG_EU_A]));
-    const fc = r.enrichRouteAsGeoJSON('route');
+    const fc = await r.enrichRouteAsGeoJSON('route');
     const [lon, lat] = fc.features[0].geometry.coordinates[0];
     // BOKNO: lat=47.04694 lon=0.69167 (DDR AIRAC 2111)
     expect(lon).to.be.closeTo(0.69167, 0.00001);
     expect(lat).to.be.closeTo(47.04694, 0.00001);
   });
 
-  it('airway segments have name in properties, DCT segments have null', () => {
+  it('airway segments keep names and unnamed segments remain identifiable', async () => {
     const r = new Resolver().withSource(
       'ddr',
       makeEnricher([SEG_EU_A, SEG_DCT])
     );
-    const fc = r.enrichRouteAsGeoJSON('route');
+    const fc = await r.enrichRouteAsGeoJSON('route');
     const airwayFeature = fc.features.find(
       (f) => f.properties.name === 'UN858'
     );
@@ -472,36 +472,165 @@ describe('Resolver — enrichRouteAsGeoJSON', () => {
     expect(dctFeature).to.exist;
   });
 
-  it('features carry start_name and end_name', () => {
+  it('features carry start_name and end_name', async () => {
     const r = new Resolver().withSource('ddr', makeEnricher([SEG_EU_A]));
-    const fc = r.enrichRouteAsGeoJSON('route');
+    const fc = await r.enrichRouteAsGeoJSON('route');
     const f = fc.features[0];
     expect(f.properties.start_name).to.equal('BOKNO');
     expect(f.properties.end_name).to.equal('DEVRO');
   });
 
-  it('features carry start_kind and end_kind', () => {
+  it('features carry start_kind and end_kind', async () => {
     const r = new Resolver().withSource('ddr', makeEnricher([SEG_EU_A]));
-    const fc = r.enrichRouteAsGeoJSON('route');
+    const fc = await r.enrichRouteAsGeoJSON('route');
     const f = fc.features[0];
     expect(f.properties.start_kind).to.equal('fix');
     expect(f.properties.end_kind).to.equal('fix');
   });
 
-  it('empty route produces empty FeatureCollection', () => {
+  it('empty route produces empty FeatureCollection', async () => {
     const r = new Resolver().withSource('ddr', makeEnricher([]));
-    const fc = r.enrichRouteAsGeoJSON('route');
+    const fc = await r.enrichRouteAsGeoJSON('route');
     expect(fc.type).to.equal('FeatureCollection');
     expect(fc.features).to.have.length(0);
   });
 
-  it('three-source resolver produces correct GeoJSON feature count', () => {
+  it('three-source resolver produces correct GeoJSON feature count', async () => {
     const r = new Resolver()
       .withSource('a', makeEnricher([SEG_EU_A]))
       .withSource('b', makeEnricher([SEG_EU_B]))
       .withSource('c', makeEnricher([SEG_US_ONLY]));
-    const fc = r.enrichRouteAsGeoJSON('route');
+    const fc = await r.enrichRouteAsGeoJSON('route');
     expect(fc.features).to.have.length(3);
+  });
+
+  it('preserves connector and segment_type metadata (DCT/NAT/unresolved)', async () => {
+    const segs: RouteSegment[] = [
+      {
+        start: { name: 'A', latitude: 10, longitude: 20, kind: 'fix' },
+        end: { name: 'B', latitude: 11, longitude: 21, kind: 'fix' },
+        name: undefined,
+        segment_type: 'dct',
+      },
+      {
+        start: { name: 'B', latitude: 11, longitude: 21, kind: 'fix' },
+        end: { name: 'C', latitude: 12, longitude: 22, kind: 'fix' },
+        name: 'NATD',
+        segment_type: 'NAT',
+        connector: 'NATD',
+      },
+      {
+        start: { name: 'C', latitude: 12, longitude: 22, kind: 'fix' },
+        end: { name: 'D', latitude: 13, longitude: 23, kind: 'fix' },
+        name: 'QWE123',
+        segment_type: 'unresolved',
+        connector: 'QWE123',
+      },
+    ];
+
+    const r = new Resolver().withSource('stub', makeEnricher(segs));
+    const fc = await r.enrichRouteAsGeoJSON('route');
+
+    expect(fc.features[0].properties.segment_type).to.equal('dct');
+    expect(fc.features[0].properties.connector).to.equal('DCT');
+    expect(fc.features[1].properties.segment_type).to.equal('NAT');
+    expect(fc.features[1].properties.connector).to.equal('NATD');
+    expect(fc.features[2].properties.segment_type).to.equal('unresolved');
+    expect(fc.features[2].properties.connector).to.equal('QWE123');
+  });
+
+  it('extractRoutePointsAsGeoJSON returns deduplicated endpoint points', async () => {
+    const r = new Resolver().withSource(
+      'ddr',
+      makeEnricher([SEG_EU_A, SEG_EU_B, SEG_DCT])
+    );
+    const lines = await r.enrichRouteAsGeoJSON('route');
+    const points = r.extractRoutePointsAsGeoJSON(lines);
+
+    expect(points.type).to.equal('FeatureCollection');
+    expect(points.features.map((f) => f.properties.ident)).to.deep.equal([
+      'BOKNO',
+      'DEVRO',
+      'VANAD',
+      'KJFK',
+      'KBOS',
+    ]);
+  });
+
+  it('enrichRoutePointsAsGeoJSON can disable dedupe', async () => {
+    const r = new Resolver().withSource(
+      'ddr',
+      makeEnricher([SEG_EU_A, SEG_EU_B])
+    );
+    const points = await r.enrichRoutePointsAsGeoJSON('route', {
+      dedupe: false,
+    });
+
+    expect(points.features).to.have.length(4);
+    expect(points.features[1].properties.ident).to.equal('DEVRO');
+    expect(points.features[2].properties.ident).to.equal('DEVRO');
+  });
+
+  it('default enrichRouteAsGeoJSON splits unresolved segments via multi-source token points', async () => {
+    const unresolvedBridge: RouteSegment = {
+      start: { name: 'HOIST', latitude: 52, longitude: -20, kind: 'fix' },
+      end: { name: 'MIVAX', latitude: 53, longitude: -16, kind: 'fix' },
+      name: 'N756C',
+      segment_type: 'unresolved',
+      connector: 'N756C',
+    };
+
+    const src = {
+      enrichRoute: () => [unresolvedBridge],
+      resolve: async (query: { navaid?: string; near?: unknown }) => {
+        const mk = (name: string, lon: number, lat: number) => ({
+          type: 'Feature',
+          geometry: {
+            type: 'Point',
+            coordinates: [lon, lat] as [number, number],
+          },
+          properties: { name, kind: 'fix' },
+        });
+        if (query.navaid === 'HOIST') return mk('HOIST', -20, 52);
+        if (query.navaid === 'MIVAX') return mk('MIVAX', -16, 53);
+        if (query.navaid === 'ANATI') {
+          const near = Array.isArray(query.near)
+            ? (query.near as [number, number])
+            : null;
+          if (
+            near &&
+            Math.abs(near[0] + 20) < 0.5 &&
+            Math.abs(near[1] - 52) < 0.5
+          ) {
+            return mk('ANATI', -18, 52.5);
+          }
+          return mk('ANATI', 40, 10);
+        }
+        return null;
+      },
+    };
+
+    const r = new Resolver().withSource('multi', src);
+    (
+      r as unknown as {
+        parseField15: (_route: string) => Promise<Field15Element[]>;
+      }
+    ).parseField15 = async () => [
+      { waypoint: 'HOIST' },
+      { airway: 'N756C' },
+      { waypoint: 'ANATI' },
+      'DCT',
+      { waypoint: 'MIVAX' },
+    ];
+
+    const fc = await r.enrichRouteAsGeoJSON('route');
+    expect(fc.features).to.have.length(2);
+    expect(fc.features[0].properties.start_name).to.equal('HOIST');
+    expect(fc.features[0].properties.end_name).to.equal('ANATI');
+    expect(fc.features[0].properties.segment_type).to.equal('unresolved');
+    expect(fc.features[1].properties.start_name).to.equal('ANATI');
+    expect(fc.features[1].properties.end_name).to.equal('MIVAX');
+    expect(fc.features[1].properties.segment_type).to.equal('dct');
   });
 });
 
@@ -668,27 +797,23 @@ describe('Resolver — lookup API', () => {
     ).to.equal('ddr');
   });
 
-  it('resolve({SID, airport}) resolves procedure from airway collections', async () => {
-    const source = makeCollectionSource({
-      airways: [
-        {
-          type: 'Feature',
-          properties: {
-            name: 'FISTO5A',
-            raw_name: 'FISTO5ALFBO',
-            airport: 'LFBO',
-            route_class: 'DP',
-            type: 'SID',
-          },
-        },
-      ],
-      airports: [
-        {
-          type: 'Feature',
-          properties: { icao: 'LFBO', name: 'Toulouse Blagnac' },
-        },
-      ],
-    });
+  it('resolve({SID, airport}) relies on source.resolve() for procedures', async () => {
+    const source = {
+      resolve: async (query: { SID?: string; airport?: string }) => {
+        if (query.SID === 'FISTO5A' && query.airport === 'LFBO') {
+          return {
+            type: 'Feature',
+            properties: {
+              name: 'FISTO5A',
+              airport: 'LFBO',
+              route_class: 'DP',
+              type: 'SID',
+            },
+          };
+        }
+        return null;
+      },
+    };
 
     const r = new Resolver().withSource('ddr', source);
     const hit = await r.resolve({ SID: 'FISTO5A', airport: 'LFBO' });
@@ -702,27 +827,25 @@ describe('Resolver — lookup API', () => {
     ).to.equal('DP');
   });
 
-  it('resolve({STAR, airport}) resolves STAR and does not return airport feature', async () => {
-    const source = makeCollectionSource({
-      airways: [
-        {
-          type: 'Feature',
-          properties: {
-            name: 'KEPER9E',
-            raw_name: 'KEPER9ELFBO',
-            airport: 'LFBO',
-            route_class: 'AP',
-            type: 'STAR',
-          },
-        },
-      ],
-      airports: [
-        {
-          type: 'Feature',
-          properties: { icao: 'LFBO', name: 'Toulouse Blagnac' },
-        },
-      ],
-    });
+  it('resolve({STAR, airport}) does not fall back to airport when source handles STAR', async () => {
+    const source = {
+      resolve: async (query: { STAR?: string; airport?: string }) => {
+        if (query.STAR === 'KEPER9E' && query.airport === 'LFBO') {
+          return {
+            type: 'Feature',
+            properties: {
+              name: 'KEPER9E',
+              airport: 'LFBO',
+              route_class: 'AP',
+              type: 'STAR',
+            },
+          };
+        }
+        return query.airport
+          ? { type: 'Feature', properties: { icao: query.airport } }
+          : null;
+      },
+    };
 
     const r = new Resolver().withSource('ddr', source);
     const hit = await r.resolve({ STAR: 'KEPER9E', airport: 'LFBO' });
@@ -732,6 +855,66 @@ describe('Resolver — lookup API', () => {
     expect(
       (hit as { properties?: { icao?: string } })?.properties?.icao
     ).to.equal(undefined);
+  });
+
+  it('resolve({STAR, airport}) does not fallback to airport rows when STAR is missing', async () => {
+    const source = {
+      resolve: async (_query: { STAR?: string; airport?: string }) => null,
+      airports: {
+        data: async () => [
+          {
+            type: 'Feature',
+            properties: {
+              icao: 'LFPG',
+              name: 'Paris Charles de Gaulle',
+            },
+          },
+        ],
+      },
+    };
+
+    const r = new Resolver().withSource('ddr', source);
+    const hit = await r.resolve({ STAR: 'KEPER9E', airport: 'LFPG' });
+    expect(hit).to.equal(null);
+  });
+
+  it('resolve({STAR, airport}) ignores airport-only source hits and keeps searching', async () => {
+    const airportOnly = {
+      resolve: async (query: { airport?: string }) =>
+        query.airport
+          ? {
+              type: 'Feature',
+              properties: { icao: query.airport, name: 'Airport only source' },
+            }
+          : null,
+    };
+
+    const starSource = {
+      resolve: async (query: { STAR?: string; airport?: string }) =>
+        query.STAR === 'KEPER9E' && query.airport === 'LFPG'
+          ? {
+              type: 'Feature',
+              properties: {
+                name: 'KEPER9E',
+                airport: 'LFPG',
+                route_class: 'AP',
+                type: 'STAR',
+              },
+            }
+          : null,
+    };
+
+    const r = new Resolver()
+      .withSource('fr24', airportOnly)
+      .withSource('ddr', starSource);
+    const hit = await r.resolve({ STAR: 'KEPER9E', airport: 'LFPG' });
+    expect(
+      (hit as { properties?: { type?: string; name?: string } })?.properties
+        ?.type
+    ).to.equal('STAR');
+    expect(
+      (hit as { properties?: { name?: string } })?.properties?.name
+    ).to.equal('KEPER9E');
   });
 });
 

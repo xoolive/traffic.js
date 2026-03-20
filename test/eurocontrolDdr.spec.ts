@@ -97,6 +97,50 @@ function makeCore(archive: Uint8Array): EurocontrolDdrCore {
             ],
           }
         : null,
+    resolve_sid: (name: string) =>
+      name.toUpperCase() === 'FISTO5A'
+        ? {
+            name: 'FISTO5ALFBO',
+            source: tag,
+            route_class: 'DP',
+            points: [
+              {
+                code: 'FISTO',
+                raw_code: 'FISTO',
+                latitude: 43.5,
+                longitude: 1.2,
+              },
+              {
+                code: 'LFBO',
+                raw_code: 'LFBO',
+                latitude: 43.63,
+                longitude: 1.37,
+              },
+            ],
+          }
+        : null,
+    resolve_star: (name: string) =>
+      name.toUpperCase() === 'KEPER9E'
+        ? {
+            name: 'KEPER9ELFBO',
+            source: tag,
+            route_class: 'AP',
+            points: [
+              {
+                code: 'KEPER',
+                raw_code: 'KEPER',
+                latitude: 44.2,
+                longitude: 2.1,
+              },
+              {
+                code: 'LFBO',
+                raw_code: 'LFBO',
+                latitude: 43.63,
+                longitude: 1.37,
+              },
+            ],
+          }
+        : null,
     resolve_airspace: (designator: string) =>
       designator.toUpperCase() === 'LFBBCTA'
         ? {
@@ -166,6 +210,15 @@ describe('EUROCONTROL DDR resolver adapter', () => {
     expect(fisto.properties.name).to.equal('FISTO5A');
     expect(fisto.properties.type).to.equal('SID');
     expect(fisto.properties.airport).to.equal('LFBO');
+
+    const sid = (await resolver.resolve({
+      SID: 'FISTO5A',
+      airport: 'LFBO',
+    })) as {
+      properties: { name?: string; type?: string };
+    };
+    expect(sid.properties.name).to.equal('FISTO5A');
+    expect(sid.properties.type).to.equal('SID');
 
     const airspaceRows = (await resolver.airspaces.data()) as Array<{
       geometry: unknown;

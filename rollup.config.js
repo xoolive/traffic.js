@@ -4,6 +4,7 @@ import serve from 'rollup-plugin-serve';
 import typescript from 'rollup-plugin-typescript2';
 
 import { nodeResolve } from '@rollup/plugin-node-resolve';
+import commonjs from '@rollup/plugin-commonjs';
 import terser from '@rollup/plugin-terser';
 import { createRequire } from 'module';
 
@@ -50,7 +51,8 @@ const nodeExternal = [
 
 // For the browser UMD builds: bundle onnxruntime-web (it cannot be loaded as a
 // global in Observable/browser), keep the rest external as UMD globals.
-const browserExternal = nodeExternal.filter((d) => d !== 'onnxruntime-web');
+const browserBundledDeps = new Set(['onnxruntime-web', 'osmtogeojson']);
+const browserExternal = nodeExternal.filter((d) => !browserBundledDeps.has(d));
 
 let basePlugins = [
   json(),
@@ -62,7 +64,7 @@ let basePlugins = [
 ];
 
 // Node plugin: prefers the "node" export condition so ort.node.min.mjs is used.
-const nodePlugins = [...basePlugins, nodeResolve({ modulesOnly: true })];
+const nodePlugins = [...basePlugins, nodeResolve(), commonjs()];
 
 // Browser plugin: ortBrowserPlugin() hard-wires onnxruntime-web to the
 // pre-bundled ort.bundle.min.mjs (WASM inlined as a data URL).
@@ -71,7 +73,8 @@ const nodePlugins = [...basePlugins, nodeResolve({ modulesOnly: true })];
 const browserPlugins = [
   ortBrowserPlugin(),
   ...basePlugins,
-  nodeResolve({ browser: true, modulesOnly: true }),
+  nodeResolve({ browser: true }),
+  commonjs(),
 ];
 
 if (process.env.SERVE) {

@@ -6,7 +6,6 @@ type FetchLike = (
 
 import { loadThrustWasmModule } from './thrustWasm.js';
 import type { RouteSegment, RouteSegmentFeature } from './field15.js';
-import { normalizeProcedureProperties } from './procedures.js';
 import * as turf from '@turf/turf';
 import type { Feature, Polygon, MultiPolygon, Position } from 'geojson';
 
@@ -140,6 +139,8 @@ export interface FaaArcgisCore {
   resolve_fix(code: string): unknown | null | Promise<unknown | null>;
   resolve_navaid(code: string): unknown | null | Promise<unknown | null>;
   resolve_airway(name: string): unknown | null | Promise<unknown | null>;
+  resolve_sid?(name: string): unknown | null | Promise<unknown | null>;
+  resolve_star?(name: string): unknown | null | Promise<unknown | null>;
   resolve_airspace(name: string): unknown | null | Promise<unknown | null>;
   /** Available in thrust-wasm ≥ 0.3 only — may be absent on older builds. */
   enrichRoute?(route: string): RouteSegment[];
@@ -556,7 +557,7 @@ function compactAirwayProperties(
     out['route_class'] = routeClass.toUpperCase();
   }
 
-  return normalizeProcedureProperties(out);
+  return out;
 }
 
 function toGeoJsonFeature(
@@ -966,8 +967,26 @@ export class FaaArcgisResolverJS {
     navaid?: string;
     fix?: string;
     airway?: string;
+    SID?: string;
+    STAR?: string;
     airspace?: string;
   }): Promise<unknown> {
+    if (query.SID) {
+      if (!this._core || typeof this._core.resolve_sid !== 'function') {
+        return null;
+      }
+      return Promise.resolve(this._core.resolve_sid(query.SID)).then((row) =>
+        row == null ? null : toGeoJsonFeature(row, 'airways')
+      );
+    }
+    if (query.STAR) {
+      if (!this._core || typeof this._core.resolve_star !== 'function') {
+        return null;
+      }
+      return Promise.resolve(this._core.resolve_star(query.STAR)).then((row) =>
+        row == null ? null : toGeoJsonFeature(row, 'airways')
+      );
+    }
     if (query.airport) {
       return this.airports.get(query.airport);
     }
@@ -983,7 +1002,9 @@ export class FaaArcgisResolverJS {
     if (query.airspace) {
       return this.airspaces.get(query.airspace);
     }
-    throw new Error('resolve: pass one of airport/navaid/fix/airway/airspace');
+    throw new Error(
+      'resolve: pass one of airport/navaid/fix/airway/SID/STAR/airspace'
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -1047,6 +1068,10 @@ export class FaaArcgisResolverJS {
       },
       properties: {
         name: seg.name ?? null,
+        segment_type: seg.segment_type ?? null,
+        connector:
+          seg.connector ??
+          (seg.segment_type === 'dct' ? 'DCT' : seg.name ?? null),
         start_name: seg.start.name ?? null,
         end_name: seg.end.name ?? null,
         start_kind: seg.start.kind ?? null,

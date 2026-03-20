@@ -6,6 +6,7 @@ import type {
 } from './field15.js';
 import { parseField15 } from './field15.js';
 import { resolveAirportQuery } from './airportLookup.js';
+import { fetchAirportOsmFeatures, type AirportOsmFetchOptions } from './osm.js';
 
 export type ResolveQuery = {
   airport?: string;
@@ -70,6 +71,19 @@ type Candidate = {
 };
 
 type SourceEntry = { name: string; source: LookupSource };
+
+type SimpleResolvedPoint = {
+  name: string;
+  latitude: number;
+  longitude: number;
+  kind: string;
+};
+
+export type ResolverAirportOsmOptions = Omit<AirportOsmFetchOptions, 'icao'> & {
+  icao?: string;
+  airport?: string;
+  source?: string | string[];
+};
 
 // ---------------------------------------------------------------------------
 // Resolver
@@ -237,6 +251,30 @@ export class Resolver {
   }
 
   /**
+   * Convenience wrapper around `fetchAirportOsmFeatures`.
+   *
+   * Pass either an explicit `icao`, or an `airport` query resolvable through
+   * attached sources.
+   */
+  async fetchAirportOsmFeatures(
+    options: ResolverAirportOsmOptions
+  ): Promise<GeoJSON.FeatureCollection> {
+    const icao =
+      options.icao ??
+      (await this._resolveAirportIcaoFromQuery(
+        options.airport,
+        options.source
+      ));
+    if (!icao) {
+      throw new Error(
+        'fetchAirportOsmFeatures: pass options.icao or options.airport that resolves to an airport with an ICAO code'
+      );
+    }
+
+    return fetchAirportOsmFeatures({ ...options, icao });
+  }
+
+  /**
    * Resolve a lookup query against attached sources.
    *
    * Resolution order follows source attachment order.
@@ -277,27 +315,29 @@ export class Resolver {
     for (const entry of sourceEntries) {
       const source = entry.source;
 
-      if (query.SID || query.STAR) {
-        const hit = await this._resolveProcedureFrom(source, query);
-        if (hit) return hit;
-        // For procedure lookups, do not fall back to generic source.resolve(),
-        // otherwise sources that prioritize `airport` may return the airport.
-        continue;
-      }
-
       if (typeof source.resolve === 'function') {
         try {
           const hit = await source.resolve(query);
-          if (hit) return hit;
+          if (hit && this._matchesResolveIntent(hit, query)) return hit;
         } catch {
           // Source failed — skip it silently.
         }
       }
 
-      if (query.airport) {
+      const airportOnlyQuery =
+        !!query.airport &&
+        !query.navaid &&
+        !query.fix &&
+        !query.airway &&
+        !query.SID &&
+        !query.STAR &&
+        !query.airspace;
+
+      if (airportOnlyQuery && query.airport) {
+        const airportQuery = query.airport;
         const airports = await this._airportRowsFrom(source);
         if (airports.length > 0) {
-          const hit = resolveAirportQuery(airports, query.airport);
+          const hit = resolveAirportQuery(airports, airportQuery);
           if (hit) return hit;
         }
       }
@@ -433,11 +473,35 @@ export class Resolver {
    * })
    * ```
    */
-  enrichRouteAsGeoJSON(route: string): {
+  async enrichRouteAsGeoJSON(route: string): Promise<{
+    type: 'FeatureCollection';
+    features: RouteSegmentFeature[];
+  }> {
+    try {
+      return await this.enrichRouteAsGeoJSONMultiSource(route);
+    } catch {
+      const segments = this.enrichRoute(route);
+      return this._segmentsToGeoJSON(segments);
+    }
+  }
+
+  /**
+   * Async multi-source route enrichment that can split unresolved segments
+   * using point lookups across all attached sources.
+   */
+  async enrichRouteAsGeoJSONMultiSource(route: string): Promise<{
+    type: 'FeatureCollection';
+    features: RouteSegmentFeature[];
+  }> {
+    const base = this.enrichRoute(route);
+    const refined = await this._refineUnresolvedWithTokenEdges(route, base);
+    return this._segmentsToGeoJSON(refined);
+  }
+
+  private _segmentsToGeoJSON(segments: RouteSegment[]): {
     type: 'FeatureCollection';
     features: RouteSegmentFeature[];
   } {
-    const segments = this.enrichRoute(route);
     const features: RouteSegmentFeature[] = segments.map((seg) => ({
       type: 'Feature' as const,
       geometry: {
@@ -449,6 +513,10 @@ export class Resolver {
       },
       properties: {
         name: seg.name ?? null,
+        segment_type: seg.segment_type ?? null,
+        connector:
+          seg.connector ??
+          (seg.segment_type === 'dct' ? 'DCT' : seg.name ?? null),
         start_name: seg.start.name ?? null,
         end_name: seg.end.name ?? null,
         start_kind: seg.start.kind ?? null,
@@ -456,6 +524,301 @@ export class Resolver {
       },
     }));
     return { type: 'FeatureCollection', features };
+  }
+
+  private async _refineUnresolvedWithTokenEdges(
+    route: string,
+    base: RouteSegment[]
+  ): Promise<RouteSegment[]> {
+    const tokenEdges = await this._buildTokenEdges(route);
+    if (tokenEdges.length === 0) {
+      return base;
+    }
+
+    const out: RouteSegment[] = [];
+    for (const seg of base) {
+      if (
+        seg.segment_type !== 'unresolved' ||
+        !seg.start.name ||
+        !seg.end.name
+      ) {
+        out.push(seg);
+        continue;
+      }
+
+      const replacement = this._findTokenSubpath(
+        tokenEdges,
+        seg.start.name,
+        seg.end.name
+      );
+      if (!replacement || replacement.length <= 1) {
+        out.push(seg);
+        continue;
+      }
+
+      out.push(...replacement);
+    }
+    return out;
+  }
+
+  private _findTokenSubpath(
+    tokenEdges: RouteSegment[],
+    startName: string,
+    endName: string
+  ): RouteSegment[] | null {
+    const start = startName.toUpperCase();
+    const end = endName.toUpperCase();
+
+    for (let i = 0; i < tokenEdges.length; i++) {
+      if ((tokenEdges[i].start.name ?? '').toUpperCase() !== start) {
+        continue;
+      }
+      const candidate: RouteSegment[] = [];
+      for (let j = i; j < tokenEdges.length; j++) {
+        const current = tokenEdges[j];
+        if (
+          candidate.length > 0 &&
+          (candidate[candidate.length - 1].end.name ?? '') !==
+            (current.start.name ?? '')
+        ) {
+          break;
+        }
+        candidate.push(current);
+        if ((current.end.name ?? '').toUpperCase() === end) {
+          return candidate;
+        }
+      }
+    }
+    return null;
+  }
+
+  private async _buildTokenEdges(route: string): Promise<RouteSegment[]> {
+    const elements = await this.parseField15(route);
+    const edges: RouteSegment[] = [];
+    let last: SimpleResolvedPoint | null = null;
+    let connectorName: string | undefined;
+    let connectorType: string | undefined;
+
+    for (const element of elements) {
+      const point = await this._resolveField15Point(element, last);
+      if (point) {
+        if (last) {
+          const name =
+            connectorType === 'dct'
+              ? undefined
+              : connectorName ?? (connectorType === 'NAT' ? 'NAT' : undefined);
+          const connector =
+            connectorType === 'dct' ? 'DCT' : connectorName ?? name ?? null;
+          edges.push({
+            start: {
+              name: last.name,
+              latitude: last.latitude,
+              longitude: last.longitude,
+              kind: last.kind,
+            },
+            end: {
+              name: point.name,
+              latitude: point.latitude,
+              longitude: point.longitude,
+              kind: point.kind,
+            },
+            name,
+            segment_type: connectorType ?? 'unresolved',
+            connector: connector ?? undefined,
+          });
+        }
+        last = point;
+        connectorName = undefined;
+        connectorType = undefined;
+        continue;
+      }
+
+      if (element === 'DCT') {
+        connectorName = undefined;
+        connectorType = 'dct';
+        continue;
+      }
+      if (!element || typeof element !== 'object') {
+        continue;
+      }
+
+      const record = element as Record<string, unknown>;
+      if (typeof record.airway === 'string') {
+        connectorName = record.airway;
+        connectorType = 'unresolved';
+      } else if (typeof record.NAT === 'string') {
+        connectorName = record.NAT;
+        connectorType = 'NAT';
+      } else if (typeof record.PTS === 'string') {
+        connectorName = record.PTS;
+        connectorType = 'PTS';
+      } else if (typeof record.SID === 'string') {
+        connectorName = record.SID;
+        connectorType = 'SID';
+      } else if (typeof record.STAR === 'string') {
+        connectorName = record.STAR;
+        connectorType = 'STAR';
+      }
+    }
+    return edges;
+  }
+
+  private async _resolveField15Point(
+    element: Field15Element,
+    nearPoint?: SimpleResolvedPoint | null
+  ): Promise<SimpleResolvedPoint | null> {
+    if (!element || typeof element !== 'object') {
+      return null;
+    }
+    const record = element as Record<string, unknown>;
+
+    if (Array.isArray(record.coords) && record.coords.length >= 2) {
+      const lat = Number(record.coords[0]);
+      const lon = Number(record.coords[1]);
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        return {
+          name: `${lat.toFixed(4)},${lon.toFixed(4)}`,
+          latitude: lat,
+          longitude: lon,
+          kind: 'coords',
+        };
+      }
+      return null;
+    }
+
+    const codeRaw =
+      typeof record.waypoint === 'string'
+        ? record.waypoint
+        : typeof record.aerodrome === 'string'
+        ? record.aerodrome
+        : null;
+    if (!codeRaw) {
+      return null;
+    }
+
+    const code = codeRaw.split('/')[0].trim().toUpperCase();
+    if (!code) {
+      return null;
+    }
+
+    const near = nearPoint
+      ? ([nearPoint.longitude, nearPoint.latitude] as [number, number])
+      : undefined;
+
+    const primary =
+      typeof record.aerodrome === 'string'
+        ? await this.resolve({ airport: code, near })
+        : await this.resolve({ navaid: code, near });
+    const fallback =
+      primary ??
+      (await this.resolve({ fix: code, near })) ??
+      (await this.resolve({ airport: code, near }));
+
+    if (!fallback || typeof fallback !== 'object') {
+      return null;
+    }
+    const maybeFeature = fallback as {
+      geometry?: { type?: string; coordinates?: unknown };
+      properties?: Record<string, unknown>;
+    };
+    const coords = maybeFeature.geometry?.coordinates;
+    if (
+      !Array.isArray(coords) ||
+      coords.length < 2 ||
+      !Number.isFinite(Number(coords[0])) ||
+      !Number.isFinite(Number(coords[1]))
+    ) {
+      return null;
+    }
+
+    return {
+      name: code,
+      longitude: Number(coords[0]),
+      latitude: Number(coords[1]),
+      kind: String(maybeFeature.properties?.kind ?? 'point'),
+    };
+  }
+
+  /**
+   * Extract endpoint points from a route GeoJSON FeatureCollection.
+   *
+   * The output is a Point FeatureCollection suitable for waypoint markers/labels.
+   * Points are deduplicated by default using `ident + lon + lat`.
+   */
+  extractRoutePointsAsGeoJSON(
+    routeGeoJSON: { features?: RouteSegmentFeature[] },
+    options: { dedupe?: boolean } = {}
+  ): {
+    type: 'FeatureCollection';
+    features: Array<{
+      type: 'Feature';
+      geometry: { type: 'Point'; coordinates: [number, number] };
+      properties: { ident: string; kind: string | null };
+    }>;
+  } {
+    const dedupe = options.dedupe !== false;
+    const out: Array<{
+      type: 'Feature';
+      geometry: { type: 'Point'; coordinates: [number, number] };
+      properties: { ident: string; kind: string | null };
+    }> = [];
+    const seen = new Set<string>();
+
+    const pushPoint = (
+      ident: string | null,
+      kind: string | null,
+      coordinates: [number, number] | undefined
+    ): void => {
+      if (!ident || !coordinates) {
+        return;
+      }
+      const key = `${ident}|${coordinates[0]}|${coordinates[1]}`;
+      if (dedupe && seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      out.push({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates },
+        properties: { ident, kind },
+      });
+    };
+
+    const features = Array.isArray(routeGeoJSON.features)
+      ? routeGeoJSON.features
+      : [];
+    for (const feature of features) {
+      if (feature?.geometry?.type !== 'LineString') {
+        continue;
+      }
+      const coords = feature.geometry.coordinates;
+      if (!Array.isArray(coords) || coords.length < 2) {
+        continue;
+      }
+      const start = coords[0] as [number, number] | undefined;
+      const end = coords[coords.length - 1] as [number, number] | undefined;
+      pushPoint(
+        feature.properties.start_name,
+        feature.properties.start_kind,
+        start
+      );
+      pushPoint(feature.properties.end_name, feature.properties.end_kind, end);
+    }
+
+    return { type: 'FeatureCollection', features: out };
+  }
+
+  /**
+   * Convenience helper: enrich route and return endpoint points as GeoJSON.
+   */
+  async enrichRoutePointsAsGeoJSON(
+    route: string,
+    options: { dedupe?: boolean } = {}
+  ): Promise<ReturnType<Resolver['extractRoutePointsAsGeoJSON']>> {
+    return this.extractRoutePointsAsGeoJSON(
+      await this.enrichRouteAsGeoJSON(route),
+      options
+    );
   }
 
   private async _airportRowsFrom(source: LookupSource): Promise<unknown[]> {
@@ -471,66 +834,26 @@ export class Resolver {
     }
   }
 
-  private async _resolveProcedureFrom(
-    source: LookupSource,
-    query: ResolveQuery
-  ): Promise<unknown | null> {
-    const procedure = String(query.SID ?? query.STAR ?? '')
-      .trim()
-      .toUpperCase();
-    if (!procedure) return null;
-
-    const wantedClass = query.SID ? 'DP' : query.STAR ? 'AP' : '';
-    const wantedAirport = String(query.airport ?? '')
-      .trim()
-      .toUpperCase();
-
-    const airways = (source as CollectionBearingSource).airways;
-    if (!airways || typeof airways.data !== 'function') {
+  private async _resolveAirportIcaoFromQuery(
+    airport: string | undefined,
+    source: string | string[] | undefined
+  ): Promise<string | null> {
+    if (!airport || !airport.trim()) {
       return null;
     }
 
-    let rows: unknown[];
-    try {
-      rows = await this._readCollectionRows(airways, procedure);
-    } catch {
-      return null;
-    }
-    if (!Array.isArray(rows) || rows.length === 0) {
+    const hit = await this.resolve({ airport, source });
+    if (!hit || typeof hit !== 'object') {
       return null;
     }
 
-    for (const row of rows) {
-      const props = this._rowProperties(row);
-      const routeClass = String(props.route_class ?? props.ROUTE_TYPE ?? '')
-        .trim()
-        .toUpperCase();
-      if (wantedClass && routeClass !== wantedClass) {
-        continue;
-      }
-
-      const proc = String(
-        props.procedure ?? props.name ?? props.identifier ?? ''
-      )
-        .trim()
-        .toUpperCase();
-      if (proc !== procedure) {
-        continue;
-      }
-
-      if (wantedAirport) {
-        const apt = String(props.airport ?? '')
-          .trim()
-          .toUpperCase();
-        if (!apt || apt !== wantedAirport) {
-          continue;
-        }
-      }
-
-      return row;
+    const props = this._rowProperties(hit);
+    const raw = props.icao ?? props.code;
+    if (typeof raw !== 'string') {
+      return null;
     }
-
-    return null;
+    const icao = raw.trim().toUpperCase();
+    return icao.length > 0 ? icao : null;
   }
 
   private async _collectFromSources(
@@ -886,6 +1209,52 @@ export class Resolver {
       .map((value) => value.trim().toUpperCase())
       .filter((value) => value.length > 0)
       .join('|');
+  }
+
+  private _matchesResolveIntent(row: unknown, query: ResolveQuery): boolean {
+    if (!row || typeof row !== 'object') {
+      return true;
+    }
+
+    const props = this._rowProperties(row);
+    const type = String(props.type ?? '')
+      .trim()
+      .toUpperCase();
+    const routeClass = String(props.route_class ?? props.ROUTE_TYPE ?? '')
+      .trim()
+      .toUpperCase();
+
+    if (query.SID) {
+      if (type === 'SID' || routeClass === 'DP') {
+        return true;
+      }
+      const wanted = query.SID.trim().toUpperCase();
+      const id = [props.name, props.ident, props.code]
+        .map((value) =>
+          String(value ?? '')
+            .trim()
+            .toUpperCase()
+        )
+        .find((value) => value.length > 0);
+      return id === wanted;
+    }
+
+    if (query.STAR) {
+      if (type === 'STAR' || routeClass === 'AP') {
+        return true;
+      }
+      const wanted = query.STAR.trim().toUpperCase();
+      const id = [props.name, props.ident, props.code]
+        .map((value) =>
+          String(value ?? '')
+            .trim()
+            .toUpperCase()
+        )
+        .find((value) => value.length > 0);
+      return id === wanted;
+    }
+
+    return true;
   }
 
   private _distanceKm(a: NearPoint, b: NearPoint): number {

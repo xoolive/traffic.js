@@ -409,12 +409,14 @@ describe('Field15Resolver', () => {
     expect(startCoord[1]).to.be.closeTo(49.01, 0.01); // latitude second
   });
 
-  it('enrichRouteAsGeoJSON DCT features have null name', () => {
+  it('enrichRouteAsGeoJSON keeps DCT unnamed when segment metadata is absent', () => {
     const core = makeResolverCore();
     const resolver = Field15Resolver.fromResolver(core as never);
     const fc = resolver.enrichRouteAsGeoJSON('LFPG DCT LACOU DCT LFLL');
     for (const feature of fc.features) {
       expect(feature.properties.name).to.equal(null);
+      expect(feature.properties.segment_type).to.equal(null);
+      expect(feature.properties.connector).to.equal(null);
     }
   });
 

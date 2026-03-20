@@ -59,7 +59,14 @@ import { expect } from 'chai';
 
 import { data, type RouteSegment } from '../src/index.js';
 
-const { NasrResolverJS, createNasrResolver } = data.faa;
+const {
+  NasrResolverJS,
+  createNasrResolver,
+  airacCodeFromDate,
+  effectiveDateFromAiracCode,
+  nasrZipUrlFromAiracCode,
+  nasrZipUrlFromDate,
+} = data.faa;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -394,6 +401,8 @@ function makeStubCore(routes: Record<string, RouteSegment[]>): {
   resolve_navaid(c: string): unknown;
   resolve_fix(c: string): unknown;
   resolve_airway(n: string): unknown;
+  resolve_sid?(n: string): unknown;
+  resolve_star?(n: string): unknown;
   resolve_airspace(d: string): unknown;
   enrichRoute(route: string): RouteSegment[];
 } {
@@ -407,6 +416,8 @@ function makeStubCore(routes: Record<string, RouteSegment[]>): {
     resolve_navaid: () => null,
     resolve_fix: () => null,
     resolve_airway: () => null,
+    resolve_sid: () => null,
+    resolve_star: () => null,
     resolve_airspace: () => null,
     enrichRoute: (route: string) => [...(routes[route.trim()] ?? [])],
   };
@@ -446,6 +457,36 @@ describe('NasrResolverJS — constructor', () => {
     expect(new NasrResolverJS(makeStubCore({})).enrichRouteAsGeoJSON).to.be.a(
       'function'
     );
+  });
+
+  it('exposes resolve method', () => {
+    expect(new NasrResolverJS(makeStubCore({})).resolve).to.be.a('function');
+  });
+
+  it('resolve({STAR}) returns a procedure feature when core supports resolve_star', async () => {
+    const r = new NasrResolverJS({
+      ...makeStubCore({}),
+      resolve_star: (name: string) =>
+        name.toUpperCase() === 'KEPER9E'
+          ? {
+              name: 'KEPER9E',
+              procedure_kind: 'STAR',
+              route_class: 'AP',
+              points: [
+                { code: 'KEPER', latitude: 44.0, longitude: 2.0 },
+                { code: 'LFBO', latitude: 43.63, longitude: 1.37 },
+              ],
+            }
+          : null,
+    });
+    const star = (await r.resolve({ STAR: 'KEPER9E', airport: 'LFBO' })) as {
+      type: string;
+      properties: Record<string, unknown>;
+      geometry: { type: string; coordinates: unknown } | null;
+    };
+    expect(star.type).to.equal('Feature');
+    expect(star.properties['procedure_kind']).to.equal('STAR');
+    expect(star.geometry?.type).to.equal('LineString');
   });
 });
 
@@ -719,10 +760,12 @@ describe('NasrResolverJS — enrichRouteAsGeoJSON (J48 / Q105 fixtures)', () => 
     }
   });
 
-  it('DCT features have null name in properties', () => {
+  it('DCT features remain unnamed when core does not provide segment metadata', () => {
     const r = new NasrResolverJS(makeStubCore(STUB_ROUTES));
     const fc = r.enrichRouteAsGeoJSON('JFK DCT BOS');
-    expect(fc.features[0].properties.name).to.be.null;
+    expect(fc.features[0].properties.name).to.equal(null);
+    expect(fc.features[0].properties.segment_type).to.equal(null);
+    expect(fc.features[0].properties.connector).to.equal(null);
   });
 
   it('features carry start_name and end_name', () => {
@@ -829,6 +872,26 @@ describe('createNasrResolver — factory', () => {
     expect(threw).to.equal(true);
   });
 
+  it('builds FAA NASR URL from AIRAC code', () => {
+    expect(nasrZipUrlFromAiracCode('2602')).to.equal(
+      'https://nfdc.faa.gov/webContent/28DaySub/28DaySubscription_Effective_2026-02-19.zip'
+    );
+  });
+
+  it('converts date to AIRAC before generating NASR URL', () => {
+    const code = airacCodeFromDate('2026-02-19');
+    expect(code).to.equal('2602');
+    const fromDate = nasrZipUrlFromDate('2026-02-19');
+    const fromCode = nasrZipUrlFromAiracCode(code);
+    expect(fromDate).to.equal(fromCode);
+  });
+
+  it('effectiveDateFromAiracCode round-trips through URL builder', () => {
+    const effective = effectiveDateFromAiracCode('2602');
+    expect(effective.toISOString().slice(0, 10)).to.equal('2026-02-19');
+    expect(nasrZipUrlFromAiracCode('2602')).to.include('2026-02-19');
+  });
+
   it('calls wasm.default() to initialise the module', async () => {
     const wasm = makeFakeWasmModule();
     await createNasrResolver({
@@ -885,6 +948,48 @@ describe('createNasrResolver — factory', () => {
     });
     expect(wasm._lastZipLength).to.equal(4);
     expect(resolver).to.be.an.instanceOf(NasrResolverJS);
+  });
+
+  it('fetches archive from computed URL when airac is provided', async () => {
+    const archiveBytes = new Uint8Array([1, 2, 3]);
+    const wasm = makeFakeWasmModule();
+    const called: string[] = [];
+    const fetchImpl = async (input: RequestInfo | URL): Promise<Response> => {
+      called.push(String(input));
+      return new Response(archiveBytes.buffer, { status: 200, headers: {} });
+    };
+
+    await createNasrResolver({
+      thrustModule: wasm as never,
+      airac: '2602',
+      fetchImpl,
+    });
+
+    expect(called).to.have.length(1);
+    expect(called[0]).to.equal(
+      'https://nfdc.faa.gov/webContent/28DaySub/28DaySubscription_Effective_2026-02-19.zip'
+    );
+  });
+
+  it('fetches archive from computed URL when date is provided', async () => {
+    const archiveBytes = new Uint8Array([1, 2, 3]);
+    const wasm = makeFakeWasmModule();
+    const called: string[] = [];
+    const fetchImpl = async (input: RequestInfo | URL): Promise<Response> => {
+      called.push(String(input));
+      return new Response(archiveBytes.buffer, { status: 200, headers: {} });
+    };
+
+    await createNasrResolver({
+      thrustModule: wasm as never,
+      date: '2026-02-19',
+      fetchImpl,
+    });
+
+    expect(called).to.have.length(1);
+    expect(called[0]).to.equal(
+      'https://nfdc.faa.gov/webContent/28DaySub/28DaySubscription_Effective_2026-02-19.zip'
+    );
   });
 
   it('throws a descriptive error when fetch returns non-ok status', async () => {

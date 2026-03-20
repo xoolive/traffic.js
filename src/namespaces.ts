@@ -17,7 +17,14 @@ import { make_date } from './core/time.js';
 import { aircraftInfo } from './core/aircraft.js';
 import { Resolver } from './data/resolver.js';
 import { parseField15 } from './data/field15.js';
-import { createNasrResolver, NasrResolverJS } from './data/nasr.js';
+import {
+  createNasrResolver,
+  NasrResolverJS,
+  airacCodeFromDate,
+  effectiveDateFromAiracCode,
+  nasrZipUrlFromAiracCode,
+  nasrZipUrlFromDate,
+} from './data/nasr.js';
 import {
   createEurocontrolDdrResolver,
   createEuroControlDdrResolver,
@@ -43,10 +50,11 @@ import {
 } from './data/airportLookup.js';
 import { createFr24AirportResolver, FR24_AIRPORTS_URL } from './data/fr24.js';
 import {
-  parseProcedureRouteName,
-  normalizeProcedureProperties,
-  normalizeProcedureFeature,
-} from './data/procedures.js';
+  fetchAirportOsmFeatures,
+  buildAirportOverpassQuery,
+  extractOverpassErrorText,
+  clearAirportOsmCache,
+} from './data/osm.js';
 import {
   buildAirspaceGeometry,
   validateGeometryNesting,
@@ -97,6 +105,14 @@ export const data = {
   faa: {
     /** Create a resolver backed by an FAA NASR 28-day cycle archive. */
     createNasrResolver,
+    /** Compute AIRAC code from date (YYCC). */
+    airacCodeFromDate,
+    /** Compute AIRAC effective date from YYCC code. */
+    effectiveDateFromAiracCode,
+    /** Build FAA NASR zip URL from AIRAC code. */
+    nasrZipUrlFromAiracCode,
+    /** Build FAA NASR zip URL from date (via AIRAC conversion). */
+    nasrZipUrlFromDate,
     /** Low-level NASR resolver class. */
     NasrResolverJS,
 
@@ -152,14 +168,16 @@ export const data = {
     createFr24AirportResolver,
   },
 
-  /** SID/STAR procedure normalization helpers. */
-  procedures: {
-    /** Parse names like FISTO5ALFBO into procedure+airport when class is DP/AP. */
-    parseProcedureRouteName,
-    /** Add normalized procedure/airport fields to a properties object. */
-    normalizeProcedureProperties,
-    /** Normalize a GeoJSON feature in-place shape (returns a cloned feature). */
-    normalizeProcedureFeature,
+  /** OpenStreetMap infrastructure helpers (Overpass). */
+  osm: {
+    /** Fetch airport infrastructure by ICAO (`aeroway=*` by default). */
+    fetchAirportOsmFeatures,
+    /** Build the underlying Overpass query string for airport area extraction. */
+    buildAirportOverpassQuery,
+    /** Extract concise error message from Overpass HTML error responses. */
+    extractOverpassErrorText,
+    /** Clear in-memory OSM cache (optionally scoped to one ICAO). */
+    clearAirportOsmCache,
   },
 };
 

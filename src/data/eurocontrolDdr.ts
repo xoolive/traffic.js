@@ -8,7 +8,100 @@ type FetchLike = (
 ) => Promise<Response>;
 
 import { loadThrustWasmModule } from './thrustWasm.js';
-import { normalizeProcedureProperties } from './procedures.js';
+
+type ProcedureRouteClass = 'DP' | 'AP';
+type ProcedureType = 'SID' | 'STAR' | 'airway';
+
+type ParsedProcedureRoute = {
+  procedure: string;
+  airport: string;
+  routeClass: ProcedureRouteClass;
+  procedureType: ProcedureType;
+};
+
+function parseProcedureRouteName(
+  name: string,
+  routeClass?: string
+): ParsedProcedureRoute | null {
+  const normalizedClass = String(routeClass ?? '')
+    .trim()
+    .toUpperCase();
+  if (normalizedClass !== 'DP' && normalizedClass !== 'AP') {
+    return null;
+  }
+
+  const normalizedName = String(name ?? '')
+    .trim()
+    .toUpperCase();
+  if (!normalizedName) {
+    return null;
+  }
+
+  const withSeparator = normalizedName.match(/^([A-Z0-9]+)[\s_-]+([A-Z]{4})$/);
+  if (withSeparator) {
+    return {
+      procedure: withSeparator[1],
+      airport: withSeparator[2],
+      routeClass: normalizedClass,
+      procedureType: normalizedClass === 'DP' ? 'SID' : 'STAR',
+    };
+  }
+
+  const compact = normalizedName.match(/^([A-Z0-9]{2,})([A-Z]{4})$/);
+  if (!compact) {
+    return null;
+  }
+
+  return {
+    procedure: compact[1],
+    airport: compact[2],
+    routeClass: normalizedClass,
+    procedureType: normalizedClass === 'DP' ? 'SID' : 'STAR',
+  };
+}
+
+function normalizeProcedureProperties(
+  properties: Record<string, unknown>
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...properties };
+
+  const routeClass = String(out['route_class'] ?? out['ROUTE_TYPE'] ?? '')
+    .trim()
+    .toUpperCase();
+  if (routeClass.length > 0) {
+    out['route_class'] = routeClass;
+  }
+
+  if (routeClass === 'AR') {
+    out['type'] = 'airway';
+  }
+
+  const baseName = String(
+    out['name'] ?? out['identifier'] ?? out['IDENT'] ?? out['ROUTE_NAME'] ?? ''
+  ).trim();
+  if (!baseName) {
+    return out;
+  }
+
+  const parsed = parseProcedureRouteName(baseName, routeClass);
+  if (!parsed) {
+    return out;
+  }
+
+  out['airport'] = parsed.airport;
+  out['route_class'] = parsed.routeClass;
+  out['type'] = parsed.procedureType;
+  out['raw_name'] =
+    out['name'] ??
+    out['identifier'] ??
+    out['IDENT'] ??
+    out['ROUTE_NAME'] ??
+    parsed.procedure;
+  out['name'] = parsed.procedure;
+  delete out['procedure'];
+  delete out['procedure_type'];
+  return out;
+}
 
 export interface EurocontrolDdrCore {
   airports(): unknown[] | Promise<unknown[]>;
@@ -18,6 +111,8 @@ export interface EurocontrolDdrCore {
   resolve_airport(code: string): unknown | null | Promise<unknown | null>;
   resolve_navaid(code: string): unknown | null | Promise<unknown | null>;
   resolve_airway(name: string): unknown | null | Promise<unknown | null>;
+  resolve_sid?(name: string): unknown | null | Promise<unknown | null>;
+  resolve_star?(name: string): unknown | null | Promise<unknown | null>;
   resolve_airspace?(
     designator: string
   ): unknown | null | Promise<unknown | null>;
@@ -776,8 +871,26 @@ export class EurocontrolDdrResolverJS {
     navaid?: string;
     fix?: string;
     airway?: string;
+    SID?: string;
+    STAR?: string;
     airspace?: string;
   }): Promise<unknown> {
+    if (query.SID) {
+      if (typeof this._core.resolve_sid !== 'function') {
+        return null;
+      }
+      return Promise.resolve(this._core.resolve_sid(query.SID)).then((row) =>
+        row == null ? null : toGeoJsonFeature(row, 'airways')
+      );
+    }
+    if (query.STAR) {
+      if (typeof this._core.resolve_star !== 'function') {
+        return null;
+      }
+      return Promise.resolve(this._core.resolve_star(query.STAR)).then((row) =>
+        row == null ? null : toGeoJsonFeature(row, 'airways')
+      );
+    }
     if (query.airport) {
       return this.airports.get(query.airport);
     }
@@ -804,7 +917,9 @@ export class EurocontrolDdrResolverJS {
       }
       return this.airspaces.get(query.airspace);
     }
-    throw new Error('resolve: pass one of airport/navaid/fix/airway/airspace');
+    throw new Error(
+      'resolve: pass one of airport/navaid/fix/airway/SID/STAR/airspace'
+    );
   }
 
   /**
@@ -851,6 +966,10 @@ export class EurocontrolDdrResolverJS {
       },
       properties: {
         name: seg.name ?? null,
+        segment_type: seg.segment_type ?? null,
+        connector:
+          seg.connector ??
+          (seg.segment_type === 'dct' ? 'DCT' : seg.name ?? null),
         start_name: seg.start.name ?? null,
         end_name: seg.end.name ?? null,
         start_kind: seg.start.kind ?? null,

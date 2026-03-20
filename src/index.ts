@@ -46,14 +46,14 @@ export type {
   AirportQueryMatchKind,
 } from './data/airportLookup.js';
 export type {
+  OsmTagFilter,
+  AirportOsmFetchOptions,
+  OverpassResponse,
+} from './data/osm.js';
+export type {
   CreateFr24AirportResolverOptions,
   Fr24AirportRow,
 } from './data/fr24.js';
-export type {
-  ProcedureRouteClass,
-  ProcedureType,
-  ParsedProcedureRoute,
-} from './data/procedures.js';
 export type {
   CreateEarthNavResolverOptions,
   CreateEarthFixResolverOptions,

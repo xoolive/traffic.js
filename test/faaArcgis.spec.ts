@@ -194,6 +194,53 @@ describe('FAA ArcGIS resolver adapter', () => {
     );
     expect(j48.properties.route_class).to.equal('AR');
   });
+
+  it('resolve({SID/STAR}) delegates to core resolve_sid/resolve_star when available', async () => {
+    const coreWithProcedures: FaaArcgisCore = {
+      ...makeCore([]),
+      resolve_sid: (name: string) =>
+        name.toUpperCase() === 'FISTO5A'
+          ? {
+              IDENT: 'FISTO5ALFBO',
+              ROUTE_TYPE: 'DP',
+              points: [
+                { code: 'FISTO', latitude: 43.5, longitude: 1.2 },
+                { code: 'LFBO', latitude: 43.63, longitude: 1.37 },
+              ],
+            }
+          : null,
+      resolve_star: (name: string) =>
+        name.toUpperCase() === 'KEPER9E'
+          ? {
+              IDENT: 'KEPER9ELFBO',
+              ROUTE_TYPE: 'AP',
+              points: [
+                { code: 'KEPER', latitude: 44.2, longitude: 2.1 },
+                { code: 'LFBO', latitude: 43.63, longitude: 1.37 },
+              ],
+            }
+          : null,
+    };
+
+    const resolver = await createFaaArcgisResolver({
+      core: coreWithProcedures,
+    });
+    const sid = (await resolver.resolve({
+      SID: 'FISTO5A',
+      airport: 'LFBO',
+    })) as {
+      properties: Record<string, unknown>;
+    };
+    expect(sid.properties['route_class']).to.equal('DP');
+
+    const star = (await resolver.resolve({
+      STAR: 'KEPER9E',
+      airport: 'LFBO',
+    })) as {
+      properties: Record<string, unknown>;
+    };
+    expect(star.properties['route_class']).to.equal('AP');
+  });
 });
 
 // ---------------------------------------------------------------------------
