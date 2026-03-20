@@ -56,7 +56,10 @@ jobs:
         run: |
           git fetch origin master
           git switch master
-          npm version --no-git-tag-version "$VERSION"
+          CURRENT_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$CURRENT_VERSION" != "$VERSION" ]; then
+            npm version --no-git-tag-version "$VERSION"
+          fi
           npm pkg set "dependencies.thrust-wasm=^${THRUST_WASM_VERSION}"
           npm install --package-lock-only
           if git diff --quiet package.json package-lock.json; then
