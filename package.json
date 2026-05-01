@@ -35,7 +35,7 @@
     "@turf/turf": "^7.3.4",
     "arquero": "^8.0.3",
     "d3": "^7.3.0",
-    "fflate": "^0.7.3",
+    "fflate": "^0.8.2",
     "onnxruntime-web": "^1.24.3",
     "osmtogeojson": "^3.0.0-beta.5",
     "simplify-js": "^1.2.4",
