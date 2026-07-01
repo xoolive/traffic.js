@@ -42,7 +42,7 @@
     "thrust-wasm": "^0.2.2"
   },
   "devDependencies": {
-    "@j178/prek": "^0.3.4",
+    "@j178/prek": "^0.4.6",
     "@rollup/plugin-commonjs": "^29.0.2",
     "@rollup/plugin-json": "^6.1.0",
     "@rollup/plugin-node-resolve": "^16.0.3",
