@@ -6,7 +6,11 @@ import type {
 } from './field15.js';
 import { parseField15 } from './field15.js';
 import { resolveAirportQuery } from './airportLookup.js';
-import { fetchAirportOsmFeatures, type AirportOsmFetchOptions } from './osm.js';
+import {
+  fetchAirportOsmFeatures,
+  type AirportOsmFetchOptions,
+  OsmBeaconsSource,
+} from './osm.js';
 
 export type ResolveQuery = {
   airport?: string;
@@ -127,6 +131,33 @@ export class Resolver {
   private _sources: Array<{ name: string; source: LookupSource }> = [];
 
   /**
+   * Cached `data()` promise per collection, so the full row array is built
+   * once per source instead of on every waypoint (xplane fixes alone hold
+   * 267k rows). Keyed by the collection object.
+   */
+  private readonly _collectionDataCache = new WeakMap<
+    object,
+    Promise<unknown[]>
+  >();
+
+  /**
+   * Cached ident → rows index per collection, so candidate lookup is O(1)
+   * after the first build instead of scanning the whole collection for each
+   * waypoint. Keyed by the collection object.
+   */
+  private readonly _collectionIndexCache = new WeakMap<
+    object,
+    Promise<Map<string, unknown[]>>
+  >();
+
+  /**
+   * Per-(source, entity, designator, context) cache for sources that expose
+   * only resolve() for an entity. This avoids repeating adapter lookups while
+   * keeping airport, navaid, and fix identifiers in separate namespaces.
+   */
+  private readonly _sourceResolveCache = new Map<string, unknown | null>();
+
+  /**
    * Aggregated collection accessors across attached sources.
    *
    * Each accessor concatenates rows from all compatible sources in source
@@ -186,6 +217,36 @@ export class Resolver {
    */
   withArcgis(arcgis: RouteEnricher): this {
     return this.withSource('arcgis', arcgis);
+  }
+
+  /**
+   * Attach an OpenStreetMap `airmark=beacon` navaid source.
+   *
+   * The source is **scoped** (by `area`, `bounds`, or `around`): it fetches
+   * the beacon set within that scope once (cached like any OSM query) and
+   * then resolves navaid/fix codes against it — no global Overpass pull. Use
+   * this to resolve radio navigation beacons (VOR/DME/NDB/ILS loc/gs and
+   * OM/MM/IM markers) for approach or alignment work.
+   *
+   * @example
+   * ```js
+   * // Beacons within ~200 km of a reference point:
+   * resolver.withOsmBeacons({ around: [200000, 49.0, 2.35] })
+   * // …or per airport:
+   * resolver.withOsmBeacons({ area: { tags: { icao: 'LFPG' } } })
+   * await resolver.resolve({ navaid: 'ORS' })
+   * ```
+   */
+  withOsmBeacons(source: OsmBeaconsSource): this;
+  withOsmBeacons(
+    options?: ConstructorParameters<typeof OsmBeaconsSource>[0]
+  ): this;
+  withOsmBeacons(
+    arg?: OsmBeaconsSource | ConstructorParameters<typeof OsmBeaconsSource>[0]
+  ): this {
+    const source =
+      arg instanceof OsmBeaconsSource ? arg : new OsmBeaconsSource(arg ?? {});
+    return this.withSource(source.sourceName, source);
   }
 
   /**
@@ -535,30 +596,155 @@ export class Resolver {
       return base;
     }
 
+    const contextRefined = this._refineResolvedEndpointsWithTokenEdges(
+      base,
+      tokenEdges
+    );
     const out: RouteSegment[] = [];
-    for (const seg of base) {
-      if (
-        seg.segment_type !== 'unresolved' ||
-        !seg.start.name ||
-        !seg.end.name
-      ) {
+    const segs = contextRefined;
+    const isGap = (s: RouteSegment) =>
+      !s.start.name || !s.end.name || s.segment_type === 'unresolved';
+    let i = 0;
+    while (i < segs.length) {
+      const seg = segs[i];
+      if (!isGap(seg)) {
         out.push(seg);
+        i++;
         continue;
       }
-
-      const replacement = this._findTokenSubpath(
-        tokenEdges,
-        seg.start.name,
-        seg.end.name
-      );
-      if (!replacement || replacement.length <= 1) {
-        out.push(seg);
+      // Gather a maximal run of unresolved / null-named segments. DDR
+      // enrichment only knows Europe, so a route touching US airspace comes
+      // back with null-named legs there even though the multi-source resolve()
+      // can place every point. Fill the whole run with the token-edge subpath
+      // between its nearest named anchors rather than skipping it.
+      let j = i;
+      while (j < segs.length && isGap(segs[j])) j++;
+      const before =
+        segs[i].start?.name ??
+        (out.length ? out[out.length - 1].end?.name : null);
+      const after =
+        segs[j - 1].end?.name ?? (j < segs.length ? segs[j].start?.name : null);
+      let filled = false;
+      if (before && after) {
+        const sub = this._findTokenSubpath(tokenEdges, before, after);
+        if (sub && sub.length > 1) {
+          out.push(...sub);
+          filled = true;
+        }
+      }
+      if (!filled && seg.start.name && seg.end.name) {
+        const replacement = this._findTokenSubpath(
+          tokenEdges,
+          seg.start.name,
+          seg.end.name
+        );
+        if (replacement && replacement.length > 1) {
+          out.push(...replacement);
+          filled = true;
+        }
+      }
+      if (!filled) {
+        while (i < j) {
+          out.push(segs[i]);
+          i++;
+        }
         continue;
       }
-
-      out.push(...replacement);
+      i = j;
     }
     return out;
+  }
+
+  private _refineResolvedEndpointsWithTokenEdges(
+    base: RouteSegment[],
+    tokenEdges: RouteSegment[]
+  ): RouteSegment[] {
+    const candidatesByName = new Map<string, SimpleResolvedPoint[]>();
+    const addCandidate = (point: RouteSegment['start']) => {
+      if (!point.name) return;
+      const normalized: SimpleResolvedPoint = {
+        name: point.name,
+        latitude: point.latitude,
+        longitude: point.longitude,
+        kind: point.kind ?? 'point',
+      };
+      const key = point.name.toUpperCase();
+      const candidates = candidatesByName.get(key) ?? [];
+      if (
+        !candidates.some(
+          (candidate) =>
+            this._distanceKm(
+              [candidate.longitude, candidate.latitude],
+              [normalized.longitude, normalized.latitude]
+            ) < NEAR_DISTANCE_TIE_EPSILON_KM
+        )
+      ) {
+        candidates.push(normalized);
+      }
+      candidatesByName.set(key, candidates);
+    };
+
+    for (const edge of tokenEdges) {
+      addCandidate(edge.start);
+      addCandidate(edge.end);
+    }
+
+    const refinePoint = (
+      point: RouteSegment['start'],
+      neighbour: RouteSegment['end']
+    ): RouteSegment['start'] => {
+      if (!point.name) return point;
+      const candidates = candidatesByName.get(point.name.toUpperCase()) ?? [];
+      if (candidates.length === 0) return point;
+
+      const neighbourCoordinates: [number, number] = [
+        neighbour.longitude,
+        neighbour.latitude,
+      ];
+      const currentDistance = this._distanceKm(
+        [point.longitude, point.latitude],
+        neighbourCoordinates
+      );
+      let best = candidates[0];
+      let bestDistance = this._distanceKm(
+        [best.longitude, best.latitude],
+        neighbourCoordinates
+      );
+      for (let i = 1; i < candidates.length; i++) {
+        const distance = this._distanceKm(
+          [candidates[i].longitude, candidates[i].latitude],
+          neighbourCoordinates
+        );
+        if (distance < bestDistance) {
+          best = candidates[i];
+          bestDistance = distance;
+        }
+      }
+
+      if (
+        currentDistance - bestDistance <= NEAR_DISTANCE_TIE_EPSILON_KM ||
+        this._distanceKm(
+          [point.longitude, point.latitude],
+          [best.longitude, best.latitude]
+        ) <= NEAR_DISTANCE_TIE_EPSILON_KM
+      ) {
+        return point;
+      }
+      return {
+        ...point,
+        longitude: best.longitude,
+        latitude: best.latitude,
+        kind: best.kind ?? point.kind,
+      };
+    };
+
+    return base.map((segment) => {
+      const start = refinePoint(segment.start, segment.end);
+      const end = refinePoint(segment.end, start);
+      return start === segment.start && end === segment.end
+        ? segment
+        : { ...segment, start, end };
+    });
   }
 
   private _findTokenSubpath(
@@ -599,16 +785,59 @@ export class Resolver {
     let connectorName: string | undefined;
     let connectorType: string | undefined;
 
-    for (const element of elements) {
-      const point = await this._resolveField15Point(element, last);
+    // Look-ahead: resolve the next significant-point element so the current
+    // point can be ranked against both neighbours. This disambiguates
+    // same-region duplicates such as ANATI (X-Plane fix vs FAA fix) by total
+    // path prev→candidate→next rather than prev alone. The cache is keyed by
+    // index; prev is determined per-call from the just-resolved current point.
+    const nextPointCache = new Map<
+      number,
+      { prevKey: string; point: SimpleResolvedPoint | null }
+    >();
+    const pointKey = (p: SimpleResolvedPoint | null) =>
+      p ? `${p.name}|${p.longitude}|${p.latitude}` : '';
+    const resolveAhead = async (
+      fromIndex: number,
+      prev: SimpleResolvedPoint | null
+    ): Promise<SimpleResolvedPoint | null> => {
+      const key = pointKey(prev);
+      const cached = nextPointCache.get(fromIndex);
+      if (cached && cached.prevKey === key) return cached.point;
+      let result: SimpleResolvedPoint | null = null;
+      for (let k = fromIndex; k < elements.length; k++) {
+        const el = elements[k];
+        if (el === 'DCT') continue;
+        if (!el || typeof el !== 'object') continue;
+        const rec = el as Record<string, unknown>;
+        if (
+          'waypoint' in rec ||
+          'aerodrome' in rec ||
+          Array.isArray(rec.coords)
+        ) {
+          result = await this._resolveField15Point(el, prev);
+          break;
+        }
+        // airway/NAT/PTS connectors are not points; keep scanning.
+      }
+      nextPointCache.set(fromIndex, { prevKey: key, point: result });
+      return result;
+    };
+
+    for (let index = 0; index < elements.length; index++) {
+      const element = elements[index];
+      const next = last ? await resolveAhead(index + 1, last) : null;
+      const point = await this._resolveField15Point(element, last, next);
       if (point) {
         if (last) {
-          const name =
-            connectorType === 'dct'
-              ? undefined
-              : connectorName ?? (connectorType === 'NAT' ? 'NAT' : undefined);
-          const connector =
-            connectorType === 'dct' ? 'DCT' : connectorName ?? name ?? null;
+          // Two significant points with no explicit connector between them
+          // (e.g. consecutive coordinate waypoints `50N080W 5130N07000W`)
+          // are an implicit direct leg, not an unresolved gap.
+          const isDirect =
+            connectorType === 'dct' || connectorType === undefined;
+          const name = isDirect
+            ? undefined
+            : connectorName ?? (connectorType === 'NAT' ? 'NAT' : undefined);
+          const connector = isDirect ? 'DCT' : connectorName ?? name ?? null;
           edges.push({
             start: {
               name: last.name,
@@ -623,7 +852,7 @@ export class Resolver {
               kind: point.kind,
             },
             name,
-            segment_type: connectorType ?? 'unresolved',
+            segment_type: connectorType ?? 'dct',
             connector: connector ?? undefined,
           });
         }
@@ -665,7 +894,8 @@ export class Resolver {
 
   private async _resolveField15Point(
     element: Field15Element,
-    nearPoint?: SimpleResolvedPoint | null
+    nearPoint?: SimpleResolvedPoint | null,
+    nextPoint?: SimpleResolvedPoint | null
   ): Promise<SimpleResolvedPoint | null> {
     if (!element || typeof element !== 'object') {
       return null;
@@ -701,42 +931,125 @@ export class Resolver {
       return null;
     }
 
+    const isAerodrome = typeof record.aerodrome === 'string';
+    const toPoint = (feature: unknown): SimpleResolvedPoint | null => {
+      if (!feature || typeof feature !== 'object') return null;
+      const f = feature as {
+        geometry?: { coordinates?: unknown };
+        properties?: Record<string, unknown>;
+      };
+      const coords = f.geometry?.coordinates;
+      if (
+        !Array.isArray(coords) ||
+        coords.length < 2 ||
+        !Number.isFinite(Number(coords[0])) ||
+        !Number.isFinite(Number(coords[1]))
+      ) {
+        return null;
+      }
+      return {
+        name: code,
+        longitude: Number(coords[0]),
+        latitude: Number(coords[1]),
+        kind: String(f.properties?.kind ?? 'point'),
+      };
+    };
+
+    // Gather ALL candidates that share the designator across object types and
+    // sources, without letting a `near` hint collapse them to one. A bare
+    // designator can match a navaid in one region and a database point (fix)
+    // elsewhere — for example `TRK` is both a navaid at Tarakan and a database
+    // point (`*TRK`) near Turkistan, and `ANATI` is both an X-Plane fix near
+    // Labrador and an FAA fix near MIVAX. The route context (previous and
+    // next resolved points) decides which one belongs to this flight.
+    const candidates: SimpleResolvedPoint[] = [];
+    const addFeature = (feature: unknown) => {
+      const p = toPoint(feature);
+      if (
+        p &&
+        !candidates.some(
+          (existing) =>
+            this._distanceKm(
+              [existing.longitude, existing.latitude],
+              [p.longitude, p.latitude]
+            ) < NEAR_DISTANCE_TIE_EPSILON_KM
+        )
+      ) {
+        candidates.push(p);
+      }
+    };
+    // Gather every candidate that shares the designator. Prefer the
+    // collection API (which returns all rows, so duplicates across regions
+    // surface and the ranking can pick the right one); fall back to resolve()
+    // for sources that only expose it. When a previous point is known, also
+    // query resolve() with `near` so sources that branch on the hint (and
+    // test mocks) contribute their context-specific candidate too.
     const near = nearPoint
       ? ([nearPoint.longitude, nearPoint.latitude] as [number, number])
       : undefined;
-
-    const primary =
-      typeof record.aerodrome === 'string'
-        ? await this.resolve({ airport: code, near })
-        : await this.resolve({ navaid: code, near });
-    const fallback =
-      primary ??
-      (await this.resolve({ fix: code, near })) ??
-      (await this.resolve({ airport: code, near }));
-
-    if (!fallback || typeof fallback !== 'object') {
+    const collectAll = async (query: ResolveQuery) => {
+      // _collectNearCandidates now covers every source: indexed lookup for
+      // collection-bearing sources and a cached resolve() fallback for those
+      // without one. No extra resolve() calls are needed here.
+      const rows = await this._collectNearCandidates(
+        query,
+        this._sources,
+        near ? ([near[0], near[1]] as NearPoint) : null
+      );
+      for (const candidate of rows) addFeature(candidate.row);
+    };
+    if (isAerodrome) {
+      await collectAll({ airport: code });
+      if (candidates.length === 0) {
+        await collectAll({ navaid: code });
+        await collectAll({ fix: code });
+      }
+    } else {
+      await collectAll({ navaid: code });
+      await collectAll({ fix: code });
+      // AIRAC database points referenced by airways are often stored under a
+      // `*`-prefixed designator (e.g. N147 lists `*TRK` near Turkistan, while
+      // the bare `TRK` is a navaid at Tarakan). Try the `*`-prefixed code as an
+      // extra fix candidate; the ranking below keeps a spurious match from
+      // winning when it is far from the route.
+      await collectAll({ fix: `*${code}` });
+      if (candidates.length === 0) await collectAll({ airport: code });
+    }
+    if (candidates.length === 0) {
       return null;
     }
-    const maybeFeature = fallback as {
-      geometry?: { type?: string; coordinates?: unknown };
-      properties?: Record<string, unknown>;
-    };
-    const coords = maybeFeature.geometry?.coordinates;
-    if (
-      !Array.isArray(coords) ||
-      coords.length < 2 ||
-      !Number.isFinite(Number(coords[0])) ||
-      !Number.isFinite(Number(coords[1]))
-    ) {
-      return null;
-    }
 
-    return {
-      name: code,
-      longitude: Number(coords[0]),
-      latitude: Number(coords[1]),
-      kind: String(maybeFeature.properties?.kind ?? 'point'),
-    };
+    let best = candidates[0];
+    if (candidates.length > 1) {
+      // A bare designator can match several points in the same region (e.g.
+      // `ANATI` is both an X-Plane fix near Labrador and an FAA fix near
+      // MIVAX). Distance to the previous point alone picks the wrong one when
+      // the closer candidate sits off the route direction. When the next
+      // anchor is known, rank by the total path prev→candidate→next, which
+      // subsumes both distance and bearing/direction; otherwise fall back to
+      // distance to the previous point.
+      const prev: NearPoint | null = nearPoint
+        ? [nearPoint.longitude, nearPoint.latitude]
+        : null;
+      const next: NearPoint | null = nextPoint
+        ? [nextPoint.longitude, nextPoint.latitude]
+        : null;
+      const score = (c: SimpleResolvedPoint): number => {
+        const here: NearPoint = [c.longitude, c.latitude];
+        if (!prev) return next ? this._distanceKm(here, next) : 0;
+        if (!next) return this._distanceKm(prev, here);
+        return this._distanceKm(prev, here) + this._distanceKm(here, next);
+      };
+      let bestScore = score(best);
+      for (let i = 1; i < candidates.length; i++) {
+        const s = score(candidates[i]);
+        if (s < bestScore - NEAR_DISTANCE_TIE_EPSILON_KM) {
+          best = candidates[i];
+          bestScore = s;
+        }
+      }
+    }
+    return best;
   }
 
   /**
@@ -1027,7 +1340,11 @@ export class Resolver {
     nearPoint: NearPoint,
     sourceEntries: SourceEntry[]
   ): Promise<unknown | null> {
-    const candidates = await this._collectNearCandidates(query, sourceEntries);
+    const candidates = await this._collectNearCandidates(
+      query,
+      sourceEntries,
+      nearPoint
+    );
     if (candidates.length === 0) {
       return null;
     }
@@ -1055,7 +1372,8 @@ export class Resolver {
 
   private async _collectNearCandidates(
     query: ResolveQuery,
-    sourceEntries: SourceEntry[]
+    sourceEntries: SourceEntry[],
+    nearPoint?: NearPoint | null
   ): Promise<Candidate[]> {
     const queryKey =
       query.airport ??
@@ -1097,14 +1415,19 @@ export class Resolver {
         const collection = source[entity];
         if (collection) collections.push(collection);
       }
+      let collectionHadData = false;
 
       for (const collection of collections) {
         if (typeof collection.data !== 'function') continue;
+        collectionHadData = true;
         try {
-          const rows = await collection.data();
-          if (!Array.isArray(rows)) continue;
-          for (const row of rows) {
-            if (!this._matchesResolveKey(row, query, wanted)) continue;
+          const fields =
+            entity === 'airports'
+              ? ['icao', 'icao_code', 'ident', 'code', 'iata', 'iata_code']
+              : ['ident', 'name', 'code', 'raw_code'];
+          const idx = await this._collectionIndex(collection, fields);
+          const matched = idx.get(wanted) ?? [];
+          for (const row of matched) {
             const coords = this._extractPointCoordinates(row);
             if (!coords) continue;
             out.push({
@@ -1120,9 +1443,103 @@ export class Resolver {
           // Source failed — skip silently.
         }
       }
+
+      // Sources that expose resolve() but no collection for this entity
+      // (e.g. the EUROCONTROL DDR, which holds `*`-prefixed database points
+      // behind resolve() but not behind a fixes collection) still need to be
+      // queried directly. Cache the result per (source, queryKey, near) so a
+      // slow source is hit at most once per designator+context rather than
+      // once per call. The `near` hint is forwarded so sources and test mocks
+      // that branch on it return the context-correct candidate.
+      if (!collectionHadData && typeof source.resolve === 'function') {
+        const nearKey = nearPoint ? `${nearPoint[0]},${nearPoint[1]}` : '';
+        const cacheKey = `${entry.name}|${entity}|${String(
+          queryKey ?? ''
+        ).toUpperCase()}|${nearKey}`;
+        let cached = this._sourceResolveCache.get(cacheKey);
+        if (cached === undefined) {
+          try {
+            const resolveQuery = nearPoint
+              ? ({
+                  ...query,
+                  near: [nearPoint[0], nearPoint[1]],
+                } as ResolveQuery)
+              : query;
+            cached = await source.resolve(resolveQuery);
+          } catch {
+            cached = null;
+          }
+          this._sourceResolveCache.set(cacheKey, cached);
+        }
+        if (cached) {
+          const coords = this._extractPointCoordinates(cached);
+          if (coords) {
+            out.push({
+              row: cached,
+              sourceName: entry.name,
+              coordinates: coords,
+              tieKey: `${String(sourceIndex).padStart(4, '0')}|${coords[0]}|${
+                coords[1]
+              }|${this._rowIdentityKey(cached)}|${entry.name}`,
+            });
+          }
+        }
+      }
     }
 
     return out;
+  }
+
+  /**
+   * Return the cached full-row array for a collection, building it once.
+   * `collection.data()` may rebuild a large array (xplane fixes: 267k rows)
+   * on every call; caching the promise avoids that per-waypoint cost.
+   */
+  private _collectionData(collection: NamedCollection): Promise<unknown[]> {
+    let cached = this._collectionDataCache.get(collection);
+    if (!cached) {
+      cached = Promise.resolve(
+        typeof collection.data === 'function' ? collection.data() : []
+      ).then((rows) => (Array.isArray(rows) ? rows : []));
+      this._collectionDataCache.set(collection, cached);
+    }
+    return cached;
+  }
+
+  /**
+   * Return a cached ident → rows index for a collection. The first call scans
+   * the collection once; every later waypoint lookup is an O(1) map get. A row
+   * is indexed under each of `fields` it exposes, deduplicated per row.
+   */
+  private _collectionIndex(
+    collection: NamedCollection,
+    fields: string[]
+  ): Promise<Map<string, unknown[]>> {
+    let cached = this._collectionIndexCache.get(collection);
+    if (!cached) {
+      cached = (async () => {
+        const rows = await this._collectionData(collection);
+        const idx = new Map<string, unknown[]>();
+        for (const row of rows) {
+          const props = this._rowProperties(row);
+          for (const field of fields) {
+            const value = String(props[field] ?? '')
+              .trim()
+              .toUpperCase();
+            if (!value) continue;
+            let bucket = idx.get(value);
+            if (!bucket) {
+              bucket = [];
+              idx.set(value, bucket);
+            }
+            if (!bucket.includes(row)) bucket.push(row);
+          }
+        }
+        return idx;
+      })();
+      this._collectionIndexCache.set(collection, cached);
+    }
+    return cached;
   }
 
   private _matchesResolveKey(

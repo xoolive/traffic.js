@@ -59,6 +59,11 @@ import {
   buildAirportOverpassQuery,
   extractOverpassErrorText,
   clearAirportOsmCache,
+  fetchOsmBeacons,
+  fetchOsmFeatures,
+  buildOsmQuery,
+  normaliseBeaconType,
+  OsmBeaconsSource,
 } from './data/osm.js';
 import {
   buildAirspaceGeometry,
@@ -187,6 +192,16 @@ export const data = {
     extractOverpassErrorText,
     /** Clear in-memory OSM cache (optionally scoped to one ICAO). */
     clearAirportOsmCache,
+    /** Fetch `airmark=beacon` nodes (around/bounds/area scoped) as records. */
+    fetchOsmBeacons,
+    /** Fetch arbitrary OSM nodes (general scoping) as a FeatureCollection. */
+    fetchOsmFeatures,
+    /** Build a general (node) Overpass query string. */
+    buildOsmQuery,
+    /** Normalise an OSM `beacon:type` to the traffic navaid taxonomy. */
+    normaliseBeaconType,
+    /** Scoped OSM beacon navaid source for `Resolver.withOsmBeacons()`. */
+    OsmBeaconsSource,
   },
 };
 

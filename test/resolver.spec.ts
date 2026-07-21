@@ -632,6 +632,264 @@ describe('Resolver — enrichRouteAsGeoJSON', () => {
     expect(fc.features[1].properties.end_name).to.equal('MIVAX');
     expect(fc.features[1].properties.segment_type).to.equal('dct');
   });
+
+  it('uses token-neighbour context to repair same-name route endpoints', async () => {
+    const point = (name: string, longitude: number, latitude: number) => ({
+      name,
+      longitude,
+      latitude,
+      kind: 'fix',
+    });
+    const wrongTrk = point('TRK', 117.5617, 3.3256);
+    const wrongLanat = point('LANAT', -173.3597, -15.1597);
+    const base: RouteSegment[] = [
+      {
+        start: point('GENDI', 65, 43),
+        end: wrongTrk,
+        name: 'N147',
+        segment_type: 'route',
+      },
+      {
+        start: wrongTrk,
+        end: point('ARBOL', 75, 42),
+        name: 'Z621',
+        segment_type: 'route',
+      },
+      {
+        start: point('EGOBA', 127.3794, 37.4875),
+        end: wrongLanat,
+        name: 'Y697',
+        segment_type: 'route',
+      },
+      {
+        start: wrongLanat,
+        end: point('MIHOU', 133.0939, 35.5311),
+        name: 'Y597',
+        segment_type: 'route',
+      },
+    ];
+    const features: Record<string, [number, number]> = {
+      GENDI: [65, 43],
+      ARBOL: [75, 42],
+      EGOBA: [127.3794, 37.4875],
+      MIHOU: [133.0939, 35.5311],
+    };
+    const source = {
+      enrichRoute: () => base,
+      resolve: async (query: { navaid?: string; near?: unknown }) => {
+        const code = query.navaid;
+        const near = Array.isArray(query.near)
+          ? (query.near as [number, number])
+          : null;
+        const coordinates =
+          code === 'TRK'
+            ? near && near[0] < 100
+              ? ([68.5794, 43.3256] as [number, number])
+              : ([117.5617, 3.3256] as [number, number])
+            : code === 'LANAT'
+            ? near && near[0] > 100
+              ? ([131.4283, 36.3733] as [number, number])
+              : ([-173.3597, -15.1597] as [number, number])
+            : code
+            ? features[code]
+            : undefined;
+        return coordinates
+          ? {
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates },
+              properties: { ident: code, kind: 'fix' },
+            }
+          : null;
+      },
+    };
+    const r = new Resolver().withSource('context', source);
+    (
+      r as unknown as {
+        parseField15: (_route: string) => Promise<Field15Element[]>;
+      }
+    ).parseField15 = async () => [
+      { waypoint: 'GENDI' },
+      { airway: 'N147' },
+      { waypoint: 'TRK' },
+      { airway: 'Z621' },
+      { waypoint: 'ARBOL' },
+      'DCT',
+      { waypoint: 'EGOBA' },
+      { airway: 'Y697' },
+      { waypoint: 'LANAT' },
+      { airway: 'Y597' },
+      { waypoint: 'MIHOU' },
+    ];
+
+    const fc = await r.enrichRouteAsGeoJSON('route');
+    expect(fc.features[0].geometry.coordinates[1]).to.deep.equal([
+      68.5794, 43.3256,
+    ]);
+    expect(fc.features[1].geometry.coordinates[0]).to.deep.equal([
+      68.5794, 43.3256,
+    ]);
+    expect(fc.features[2].geometry.coordinates[1]).to.deep.equal([
+      131.4283, 36.3733,
+    ]);
+    expect(fc.features[3].geometry.coordinates[0]).to.deep.equal([
+      131.4283, 36.3733,
+    ]);
+  });
+
+  it('indexes collection data once without redundant source.resolve calls', async () => {
+    let fixesDataCalls = 0;
+    let navaidsDataCalls = 0;
+    let resolveCalls = 0;
+    const row = (ident: string, longitude: number) => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [longitude, 45] },
+      properties: { ident, kind: 'fix', name: ident },
+    });
+    const rows = [row('PNT01', 1), row('PNT02', 2), row('PNT03', 3)];
+    const source = {
+      enrichRoute: (): RouteSegment[] => [
+        {
+          start: { name: 'PNT01', longitude: 1, latitude: 45 },
+          end: { name: 'PNT03', longitude: 3, latitude: 45 },
+          segment_type: 'unresolved',
+        },
+      ],
+      fixes: {
+        data: async () => {
+          fixesDataCalls++;
+          return rows;
+        },
+      },
+      navaids: {
+        data: async () => {
+          navaidsDataCalls++;
+          return [];
+        },
+      },
+      resolve: async () => {
+        resolveCalls++;
+        return null;
+      },
+    };
+    const r = new Resolver().withSource('indexed', source);
+    (
+      r as unknown as {
+        parseField15: (_route: string) => Promise<Field15Element[]>;
+      }
+    ).parseField15 = async () => [
+      { waypoint: 'PNT01' },
+      'DCT',
+      { waypoint: 'PNT02' },
+      'DCT',
+      { waypoint: 'PNT03' },
+    ];
+
+    const fc = await r.enrichRouteAsGeoJSON('route');
+    expect(fc.features).to.have.length(2);
+    expect(fixesDataCalls).to.equal(1);
+    expect(navaidsDataCalls).to.equal(1);
+    expect(resolveCalls).to.equal(0);
+  });
+
+  it('disambiguates same-region duplicates by total path prev→candidate→next', async () => {
+    // Two ANATI fixes sit in the same region: one near the previous point
+    // (Labrador), one near the next (MIVAX). Distance-to-previous alone picks
+    // the wrong one; ranking by the total prev→candidate→next path picks the
+    // candidate that continues the route direction.
+    const point = (name: string, longitude: number, latitude: number) => ({
+      name,
+      longitude,
+      latitude,
+      kind: 'fix',
+    });
+    const base: RouteSegment[] = [
+      {
+        start: point('HOIST', -57, 55.03),
+        end: point('MIVAX', -70.16, 47.44),
+        name: 'N756C',
+        segment_type: 'unresolved',
+        connector: 'N756C',
+      },
+    ];
+    // Two ANATI candidates in the same region. The fixes collection returns
+    // both so the resolver can rank them; source.resolve alone would return
+    // only one (nearest to `near`), which would defeat the test.
+    const anatiRows = [
+      {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [-61.52, 50.15] },
+        properties: { ident: 'ANATI', kind: 'fix', name: 'ANATI' },
+      },
+      {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [-69.59, 47.76] },
+        properties: { ident: 'ANATI', kind: 'fix', name: 'ANATI' },
+      },
+    ];
+    const source = {
+      enrichRoute: () => base,
+      fixes: {
+        data: async () => [
+          {
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [-57, 55.03] },
+            properties: { ident: 'HOIST', kind: 'fix', name: 'HOIST' },
+          },
+          ...anatiRows,
+          {
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [-70.16, 47.44] },
+            properties: { ident: 'MIVAX', kind: 'fix', name: 'MIVAX' },
+          },
+        ],
+        search: (text: string) =>
+          text.toUpperCase() === 'ANATI' ? anatiRows : [],
+      },
+      resolve: async (query: {
+        navaid?: string;
+        fix?: string;
+        near?: unknown;
+      }) => {
+        const code = query.navaid ?? query.fix;
+        const mk = (lon: number, lat: number) => ({
+          type: 'Feature',
+          geometry: {
+            type: 'Point',
+            coordinates: [lon, lat] as [number, number],
+          },
+          properties: { ident: code, kind: 'fix' },
+        });
+        if (code === 'HOIST') return mk(-57, 55.03);
+        if (code === 'MIVAX') return mk(-70.16, 47.44);
+        if (code === 'ANATI') return mk(-61.52, 50.15);
+        return null;
+      },
+    };
+    const r = new Resolver().withSource('context', source);
+    (
+      r as unknown as {
+        parseField15: (_route: string) => Promise<Field15Element[]>;
+      }
+    ).parseField15 = async () => [
+      { waypoint: 'HOIST' },
+      { airway: 'N756C' },
+      { waypoint: 'ANATI' },
+      'DCT',
+      { waypoint: 'MIVAX' },
+    ];
+
+    const fc = await r.enrichRouteAsGeoJSON('route');
+    const anati = fc.features.find(
+      (f) =>
+        f.properties?.start_name === 'ANATI' ||
+        f.properties?.end_name === 'ANATI'
+    );
+    const anatiCoords =
+      anati?.properties?.start_name === 'ANATI'
+        ? anati.geometry.coordinates[0]
+        : anati?.geometry.coordinates[1];
+    expect(anatiCoords).to.deep.equal([-69.59, 47.76]);
+  });
 });
 
 // ---------------------------------------------------------------------------
