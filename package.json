@@ -1,12 +1,11 @@
 {
   "name": "traffic.js",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Process and visualise aircraft trajectories",
   "type": "module",
   "main": "dist/traffic.node.js",
   "module": "dist/traffic.js",
   "unpkg": "dist/traffic.min.js",
-  "jsdeliver": "dist/traffic.min.js",
   "types": "dist/src/index.d.ts",
   "scripts": {
     "build": "rollup -c",
@@ -16,7 +15,7 @@
     "format": "prettier -w ./src ./test",
     "postbuild": "tsc && cp data/scaler.onnx dist/scaler.onnx && cp data/classifier.onnx dist/classifier.onnx && cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.mjs dist/ && cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.wasm dist/",
     "prepare": "prek install",
-    "prepublishOnly": "npm run test & npm run lint & npm run build",
+    "prepublishOnly": "npm run test && npm run lint && npm run build",
     "serve": "rollup -c --environment SERVE",
     "test": "node --loader ts-node/esm --experimental-specifier-resolution=node scripts/run-tests.mjs",
     "docs": "typedoc",
@@ -72,5 +71,9 @@
       "diff": "^8.0.3",
       "serialize-javascript": "^7.0.4"
     }
-  }
+  },
+  "files": [
+    "dist"
+  ],
+  "jsdelivr": "dist/traffic.min.js"
 }
