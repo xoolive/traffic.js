@@ -36,7 +36,10 @@ jobs:
 
       - name: Prepare package version and dependencies for publish
         run: |
-          npm version --no-git-tag-version "$VERSION"
+          CURRENT_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$CURRENT_VERSION" != "$VERSION" ]; then
+            npm version --no-git-tag-version "$VERSION"
+          fi
           npm pkg set "dependencies.thrust-wasm=^${THRUST_WASM_VERSION}"
           npm install
 
