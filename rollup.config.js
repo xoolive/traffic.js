@@ -9,9 +9,8 @@ import replace from '@rollup/plugin-replace';
 import terser from '@rollup/plugin-terser';
 import { createRequire } from 'module';
 
-import pkg from './package.json';
-
 const _require = createRequire(import.meta.url);
+const pkg = _require('./package.json');
 
 /**
  * Rollup plugin that resolves `onnxruntime-web` to the pre-bundled browser
