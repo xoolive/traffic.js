@@ -69,7 +69,7 @@ let basePlugins = [
   }),
   bundleSize(),
   typescript({
-    typescript: require('typescript'),
+    typescript: _require('typescript'),
     clean: true,
   }),
 ];
