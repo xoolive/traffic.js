@@ -505,8 +505,7 @@ function compactAirspaceProperties(
       }
 
       const previous = mergedLayers[mergedLayers.length - 1] as
-        | { lower?: number; upper?: number; geometry?: unknown }
-        | undefined;
+        { lower?: number; upper?: number; geometry?: unknown } | undefined;
       const previousGeometry = previous
         ? layerGeometryToFeature(previous.geometry)
         : null;
@@ -571,15 +570,15 @@ function toGeoJsonFeature(
     entity === 'airways'
       ? compactAirwayProperties(baseProperties)
       : entity === 'airspaces'
-      ? compactAirspaceProperties(baseProperties, includeGeometry)
-      : baseProperties;
+        ? compactAirspaceProperties(baseProperties, includeGeometry)
+        : baseProperties;
   const geometry = !includeGeometry
     ? null
     : entity === 'airways'
-    ? toLineStringGeometry(baseProperties)
-    : entity === 'airspaces'
-    ? toPolygonGeometry(properties)
-    : toPointGeometry(properties);
+      ? toLineStringGeometry(baseProperties)
+      : entity === 'airspaces'
+        ? toPolygonGeometry(properties)
+        : toPointGeometry(properties);
   return {
     type: 'Feature',
     geometry,
@@ -691,7 +690,7 @@ function compactCollectionForWasm(
     return {
       type: 'Feature',
       properties: compactFeatureProperties(typed.properties, datasetId),
-      geometry: keepGeometry ? typed.geometry ?? null : null,
+      geometry: keepGeometry ? (typed.geometry ?? null) : null,
     };
   });
 
@@ -832,8 +831,7 @@ export class FaaArcgisResolverJS {
   private _fetchImpl: FetchLike;
   private _signal: AbortSignal | undefined;
   private _onDatasetProgress:
-    | ((progress: FaaArcgisDatasetProgress) => void)
-    | undefined;
+    ((progress: FaaArcgisDatasetProgress) => void) | undefined;
   private _onCollection: ((loaded: FaaArcgisDatasetLoaded) => void) | undefined;
   private _collectionsByDatasetId: Map<string, unknown>;
   private _datasetFetchPromiseById: Map<string, Promise<void>>;
@@ -1071,7 +1069,7 @@ export class FaaArcgisResolverJS {
         segment_type: seg.segment_type ?? null,
         connector:
           seg.connector ??
-          (seg.segment_type === 'dct' ? 'DCT' : seg.name ?? null),
+          (seg.segment_type === 'dct' ? 'DCT' : (seg.name ?? null)),
         start_name: seg.start.name ?? null,
         end_name: seg.end.name ?? null,
         start_kind: seg.start.kind ?? null,
@@ -1364,10 +1362,10 @@ export class FaaArcgisResolverJS {
       kind === 'airport'
         ? 'airports'
         : kind === 'fix'
-        ? 'fixes'
-        : kind === 'navaid'
-        ? 'navaids'
-        : 'airways';
+          ? 'fixes'
+          : kind === 'navaid'
+            ? 'navaids'
+            : 'airways';
     return toGeoJsonFeature(row, entity);
   }
 }

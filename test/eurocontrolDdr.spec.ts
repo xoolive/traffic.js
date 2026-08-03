@@ -58,8 +58,8 @@ function makeCore(archive: Uint8Array): EurocontrolDdrCore {
       code.toUpperCase() === 'TOU'
         ? { code: 'TOU', source: tag, latitude: 43.6, longitude: 1.4 }
         : code.toUpperCase() === 'NARAK'
-        ? { code: 'NARAK', source: tag, latitude: 43.2, longitude: 1.5 }
-        : null,
+          ? { code: 'NARAK', source: tag, latitude: 43.2, longitude: 1.5 }
+          : null,
     resolve_airway: (name: string) =>
       name.toUpperCase() === 'UM605'
         ? {
@@ -77,26 +77,26 @@ function makeCore(archive: Uint8Array): EurocontrolDdrCore {
             ],
           }
         : name.toUpperCase() === 'FISTO5ALFBO'
-        ? {
-            name: 'FISTO5ALFBO',
-            source: tag,
-            route_class: 'DP',
-            points: [
-              {
-                code: 'FISTO',
-                raw_code: 'FISTO',
-                latitude: 43.5,
-                longitude: 1.2,
-              },
-              {
-                code: 'LFBO',
-                raw_code: 'LFBO',
-                latitude: 43.63,
-                longitude: 1.37,
-              },
-            ],
-          }
-        : null,
+          ? {
+              name: 'FISTO5ALFBO',
+              source: tag,
+              route_class: 'DP',
+              points: [
+                {
+                  code: 'FISTO',
+                  raw_code: 'FISTO',
+                  latitude: 43.5,
+                  longitude: 1.2,
+                },
+                {
+                  code: 'LFBO',
+                  raw_code: 'LFBO',
+                  latitude: 43.63,
+                  longitude: 1.37,
+                },
+              ],
+            }
+          : null,
     resolve_sid: (name: string) =>
       name.toUpperCase() === 'FISTO5A'
         ? {
@@ -457,8 +457,7 @@ describe('EUROCONTROL DDR resolver adapter', () => {
       Array.isArray(
         (
           lfbb.properties.layers?.[0].geometry?.coordinates as
-            | unknown[]
-            | undefined
+            unknown[] | undefined
         )?.[0]
       )
     ).to.equal(true);

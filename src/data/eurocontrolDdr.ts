@@ -513,8 +513,7 @@ function compactAirspaceProperties(
       }
 
       const previous = mergedLayers[mergedLayers.length - 1] as
-        | { lower?: number; upper?: number; geometry?: unknown }
-        | undefined;
+        { lower?: number; upper?: number; geometry?: unknown } | undefined;
       const previousGeometry = previous
         ? layerGeometryToFeature(previous.geometry)
         : null;
@@ -618,15 +617,15 @@ function toGeoJsonFeature(
     entity === 'airways'
       ? compactAirwayProperties(baseProperties)
       : entity === 'airspaces'
-      ? compactAirspaceProperties(baseProperties, includeGeometry)
-      : baseProperties;
+        ? compactAirspaceProperties(baseProperties, includeGeometry)
+        : baseProperties;
   const geometry = !includeGeometry
     ? null
     : entity === 'airways'
-    ? toLineStringGeometry(baseProperties)
-    : entity === 'airspaces'
-    ? toPolygonGeometry(properties)
-    : toPointGeometry(properties);
+      ? toLineStringGeometry(baseProperties)
+      : entity === 'airspaces'
+        ? toPolygonGeometry(properties)
+        : toPointGeometry(properties);
   return {
     type: 'Feature',
     geometry,
@@ -969,7 +968,7 @@ export class EurocontrolDdrResolverJS {
         segment_type: seg.segment_type ?? null,
         connector:
           seg.connector ??
-          (seg.segment_type === 'dct' ? 'DCT' : seg.name ?? null),
+          (seg.segment_type === 'dct' ? 'DCT' : (seg.name ?? null)),
         start_name: seg.start.name ?? null,
         end_name: seg.end.name ?? null,
         start_kind: seg.start.kind ?? null,

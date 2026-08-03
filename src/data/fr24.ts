@@ -42,8 +42,8 @@ function parseRows(input: unknown): Fr24AirportRow[] {
   const list = Array.isArray(input)
     ? input
     : Array.isArray((input as { rows?: unknown[] })?.rows)
-    ? ((input as { rows?: unknown[] }).rows as unknown[])
-    : [];
+      ? ((input as { rows?: unknown[] }).rows as unknown[])
+      : [];
 
   return list
     .map((raw) => {
