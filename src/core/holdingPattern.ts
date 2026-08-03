@@ -86,10 +86,10 @@ export function unwrapDegrees(angles: number[]): number[] {
  * the dev-server origin, causing the WASM fetch to 404 and ORT to report
  * "no available backend found".
  *
- * Setting `ort.env.wasm.wasmPaths` to a string prefix **before** any session
- * is created overrides ORT's own path resolution entirely, so the worker files
- * are always fetched from the right place regardless of how the bundle was
- * loaded.
+ * Setting the `.wasm` entry in `ort.env.wasm.wasmPaths` **before** any session
+ * is created overrides the binary's path while preserving the worker module
+ * embedded in `ort.bundle.min.mjs`. This matters on hosts such as Observable,
+ * whose CSP may reject a cross-origin dynamic import of the external `.mjs`.
  *
  * Safe to call multiple times — no-op after the first successful call.
  */
@@ -98,18 +98,22 @@ function configureOrtWasmPaths(baseDir: string): void {
   if (_wasmPathsConfigured) return;
   _wasmPathsConfigured = true;
 
-  // baseDir is either a filesystem path (Node) or a URL base (browser).
-  const sep = baseDir.includes('://')
-    ? '/'
-    : baseDir.includes('\\')
-      ? '\\'
-      : '/';
-  const base = baseDir.endsWith(sep) ? baseDir : baseDir + sep;
+  const wasm = pathJoin(baseDir, 'ort-wasm-simd-threaded.jsep.wasm');
 
-  // ort.env.wasm.wasmPaths accepts either a string prefix or an object with
-  // individual file overrides.  We use the object form so we can set both
-  // the .mjs worker module and the .wasm binary independently.
-  ort.env.wasm.wasmPaths = base as unknown as Record<string, string>;
+  // Do not use a string prefix in browsers. In ORT, a prefix forces a dynamic
+  // import of the external .mjs worker. The browser build uses
+  // ort.bundle.min.mjs, which already embeds that worker; only its matching
+  // WASM binary needs an explicit location. Keeping the worker embedded also
+  // avoids CSP failures when traffic.js and its assets are cross-origin.
+  //
+  // The Node build keeps ORT external, so it still needs both files.
+  ort.env.wasm.wasmPaths =
+    typeof document === 'undefined'
+      ? {
+          mjs: pathJoin(baseDir, 'ort-wasm-simd-threaded.jsep.mjs'),
+          wasm,
+        }
+      : { wasm };
 }
 
 /**
