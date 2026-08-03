@@ -102,8 +102,8 @@ function configureOrtWasmPaths(baseDir: string): void {
   const sep = baseDir.includes('://')
     ? '/'
     : baseDir.includes('\\')
-    ? '\\'
-    : '/';
+      ? '\\'
+      : '/';
   const base = baseDir.endsWith(sep) ? baseDir : baseDir + sep;
 
   // ort.env.wasm.wasmPaths accepts either a string prefix or an object with

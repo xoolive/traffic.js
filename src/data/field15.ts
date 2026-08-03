@@ -21,10 +21,7 @@ export type Field15BearingDistance = {
 };
 /** Union of all point variants */
 export type Field15Point =
-  | Field15Waypoint
-  | Field15Aerodrome
-  | Field15Coords
-  | Field15BearingDistance;
+  Field15Waypoint | Field15Aerodrome | Field15Coords | Field15BearingDistance;
 
 /** ATS airway connector: `{ airway: "UM184" }` */
 export type Field15Airway = { airway: string };
@@ -36,12 +33,7 @@ export type Field15Sid = { SID: string };
 export type Field15Star = { STAR: string };
 /** Flight rule / ATM indicators */
 export type Field15Flag =
-  | 'VFR'
-  | 'IFR'
-  | 'OAT'
-  | 'GAT'
-  | 'IFPSTOP'
-  | 'IFPSTART';
+  'VFR' | 'IFR' | 'OAT' | 'GAT' | 'IFPSTOP' | 'IFPSTART';
 /** Stay time token */
 export type Field15Stay = { STAY: { minutes: number | null } };
 /** NAT track: `{ NAT: "A" }` */
@@ -52,11 +44,7 @@ export type Field15Pts = { PTS: string };
 export type Field15Modifier = {
   speed?: { kts: number } | { Mach: number } | { 'km/h': number };
   altitude?:
-    | { FL: number }
-    | { S: number }
-    | { ft: number }
-    | { m: number }
-    | 'VFR';
+    { FL: number } | { S: number } | { ft: number } | { m: number } | 'VFR';
   altitude_cruise_to?: Field15Modifier['altitude'];
   cruise_climb?: boolean;
 };
@@ -153,8 +141,7 @@ interface EurocontrolResolverWithField15 {
 // Pure tokenizer — no resolver needed
 // ---------------------------------------------------------------------------
 
-export interface ParseField15Options
-  extends LoadThrustWasmModuleOptions<ThrustWasmModule> {}
+export interface ParseField15Options extends LoadThrustWasmModuleOptions<ThrustWasmModule> {}
 
 /**
  * Parse a raw ICAO field 15 route string into a structured token array.
@@ -214,8 +201,7 @@ export async function parseField15(
  *
  * `Field15Resolver` will be removed in version 0.1.0.
  */
-export interface Field15ResolverOptions
-  extends LoadThrustWasmModuleOptions<ThrustWasmModule> {}
+export interface Field15ResolverOptions extends LoadThrustWasmModuleOptions<ThrustWasmModule> {}
 
 /**
  * @deprecated since 0.0.9 — use {@link Resolver} with {@link createEurocontrolDdrResolver} instead.
@@ -329,7 +315,7 @@ export class Field15Resolver {
         segment_type: seg.segment_type ?? null,
         connector:
           seg.connector ??
-          (seg.segment_type === 'dct' ? 'DCT' : seg.name ?? null),
+          (seg.segment_type === 'dct' ? 'DCT' : (seg.name ?? null)),
         start_name: seg.start.name ?? null,
         end_name: seg.end.name ?? null,
         start_kind: seg.start.kind ?? null,

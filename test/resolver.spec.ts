@@ -687,12 +687,12 @@ describe('Resolver — enrichRouteAsGeoJSON', () => {
               ? ([68.5794, 43.3256] as [number, number])
               : ([117.5617, 3.3256] as [number, number])
             : code === 'LANAT'
-            ? near && near[0] > 100
-              ? ([131.4283, 36.3733] as [number, number])
-              : ([-173.3597, -15.1597] as [number, number])
-            : code
-            ? features[code]
-            : undefined;
+              ? near && near[0] > 100
+                ? ([131.4283, 36.3733] as [number, number])
+                : ([-173.3597, -15.1597] as [number, number])
+              : code
+                ? features[code]
+                : undefined;
         return coordinates
           ? {
               type: 'Feature',

@@ -133,8 +133,7 @@ describe('parseField15', () => {
       thrustModule: STUB_WASM as never,
     });
     const coord = tokens.find((t) => typeof t === 'object' && 'coords' in t) as
-      | { coords: [number, number] }
-      | undefined;
+      { coords: [number, number] } | undefined;
     expect(coord).to.exist;
     expect(coord!.coords[0]).to.equal(45.0); // latitude
     expect(coord!.coords[1]).to.equal(10.0); // longitude

@@ -1,9 +1,5 @@
 export type AirportQueryMatchKind =
-  | 'icao_exact'
-  | 'iata_exact'
-  | 'name_exact'
-  | 'name_prefix'
-  | 'name_contains';
+  'icao_exact' | 'iata_exact' | 'name_exact' | 'name_prefix' | 'name_contains';
 
 export interface AirportQueryMatch<T = unknown> {
   row: T;

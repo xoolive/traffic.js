@@ -259,15 +259,15 @@ export function buildAirspaceGeometry(
         layer.lower === null || layer.lower === undefined
           ? null
           : Number.isFinite(Number(layer.lower))
-          ? Number(layer.lower)
-          : null;
+            ? Number(layer.lower)
+            : null;
       const upper =
         layer.upper === null || layer.upper === undefined
           ? null
           : Number.isFinite(Number(layer.upper)) ||
-            Number(layer.upper) === Infinity
-          ? Number(layer.upper)
-          : null;
+              Number(layer.upper) === Infinity
+            ? Number(layer.upper)
+            : null;
       return {
         lower,
         upper,

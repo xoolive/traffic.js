@@ -446,8 +446,7 @@ export function clearAirportOsmCache(icao?: string): void {
 
 /** An area scope: either a set of area tags or an OSM relation id. */
 export type OsmAreaSpec =
-  | { tags: Record<string, OsmTagFilter> }
-  | { relation: number };
+  { tags: Record<string, OsmTagFilter> } | { relation: number };
 
 export interface OsmFeatureFetchOptions {
   /** Tag filters. Defaults to `{ airmark: 'beacon' }` for beacon helpers. */
@@ -700,8 +699,8 @@ function featureToBeacon(
     typeof freqRaw === 'number'
       ? freqRaw
       : typeof freqRaw === 'string' && freqRaw.trim() !== ''
-      ? Number(freqRaw)
-      : null;
+        ? Number(freqRaw)
+        : null;
 
   return {
     code,
@@ -717,8 +716,10 @@ function featureToBeacon(
   };
 }
 
-export interface OsmBeaconsFetchOptions
-  extends Omit<OsmFeatureFetchOptions, 'tags'> {}
+export interface OsmBeaconsFetchOptions extends Omit<
+  OsmFeatureFetchOptions,
+  'tags'
+> {}
 
 /**
  * Fetch `airmark=beacon` nodes and return them as normalised beacon records.

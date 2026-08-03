@@ -109,8 +109,7 @@ export type FetchLike = (
   init?: RequestInit
 ) => Promise<Response>;
 
-export interface CreateNasrResolverOptions
-  extends LoadThrustWasmModuleOptions<ThrustWasmModule> {
+export interface CreateNasrResolverOptions extends LoadThrustWasmModuleOptions<ThrustWasmModule> {
   /** Pre-loaded NASR ZIP bytes. Either this or `nasrUrl` is required. */
   archive?: Uint8Array | ArrayBuffer;
   /** URL to fetch the NASR ZIP from if `archive` is not provided. */
@@ -333,7 +332,7 @@ export class NasrResolverJS {
         segment_type: seg.segment_type ?? null,
         connector:
           seg.connector ??
-          (seg.segment_type === 'dct' ? 'DCT' : seg.name ?? null),
+          (seg.segment_type === 'dct' ? 'DCT' : (seg.name ?? null)),
         start_name: seg.start.name ?? null,
         end_name: seg.end.name ?? null,
         start_kind: seg.start.kind ?? null,

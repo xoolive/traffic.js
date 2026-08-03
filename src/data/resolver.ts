@@ -577,7 +577,7 @@ export class Resolver {
         segment_type: seg.segment_type ?? null,
         connector:
           seg.connector ??
-          (seg.segment_type === 'dct' ? 'DCT' : seg.name ?? null),
+          (seg.segment_type === 'dct' ? 'DCT' : (seg.name ?? null)),
         start_name: seg.start.name ?? null,
         end_name: seg.end.name ?? null,
         start_kind: seg.start.kind ?? null,
@@ -836,8 +836,8 @@ export class Resolver {
             connectorType === 'dct' || connectorType === undefined;
           const name = isDirect
             ? undefined
-            : connectorName ?? (connectorType === 'NAT' ? 'NAT' : undefined);
-          const connector = isDirect ? 'DCT' : connectorName ?? name ?? null;
+            : (connectorName ?? (connectorType === 'NAT' ? 'NAT' : undefined));
+          const connector = isDirect ? 'DCT' : (connectorName ?? name ?? null);
           edges.push({
             start: {
               name: last.name,
@@ -920,8 +920,8 @@ export class Resolver {
       typeof record.waypoint === 'string'
         ? record.waypoint
         : typeof record.aerodrome === 'string'
-        ? record.aerodrome
-        : null;
+          ? record.aerodrome
+          : null;
     if (!codeRaw) {
       return null;
     }
@@ -1391,10 +1391,10 @@ export class Resolver {
     const entity = query.airport
       ? 'airports'
       : query.navaid
-      ? 'navaids'
-      : query.fix
-      ? 'fixes'
-      : null;
+        ? 'navaids'
+        : query.fix
+          ? 'fixes'
+          : null;
     if (!entity) {
       return [];
     }
