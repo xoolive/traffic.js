@@ -51,7 +51,7 @@
     "@types/chai-datetime": "^1.0.0",
     "@types/d3": "^7.1.0",
     "@types/mocha": "^10.0.10",
-    "@types/node": "^25.9.1",
+    "@types/node": "^26.1.2",
     "chai": "^6.2.2",
     "chai-datetime": "^1.8.0",
     "mocha": "^11.7.5",
